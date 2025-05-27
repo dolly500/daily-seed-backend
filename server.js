@@ -37,6 +37,11 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Daily Seed API is running' });
 });
 
+app.get('/', (req, res) => {
+  res.send('Daily Seed API is running');
+});
+
+
 // Error handler middleware
 app.use(errorHandler);
 
