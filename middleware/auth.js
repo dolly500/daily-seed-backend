@@ -1,3 +1,4 @@
+// middleware/auth.js - Updated with protect alias
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -48,4 +49,6 @@ const auth = async (req, res, next) => {
   }
 };
 
+// Export both names for compatibility
 module.exports = auth;
+module.exports.protect = auth;
