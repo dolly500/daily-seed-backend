@@ -382,38 +382,47 @@ exports.getCalendarData = async (req, res, next) => {
 
     const requestedMonth = new Date(year, month - 1, 1);
     const daysInMonth = new Date(year, month, 0).getDate();
-    
-    // Calculate which reading days correspond to this calendar month
+
     const calendarData = [];
     
     for (let date = 1; date <= daysInMonth; date++) {
       const currentDate = new Date(year, month - 1, date);
       const daysSinceStart = Math.floor((currentDate - userProgress.startDate) / (1000 * 60 * 60 * 24)) + 1;
       
-      // Only include days that have reading assignments (1-365)
-      if (daysSinceStart >= 1 && daysSinceStart <= 365) {
-        const reading = userProgress.customReadings?.find(r => r.day === daysSinceStart);
-        const isCompleted = userProgress.completedDays.some(day => day.day === daysSinceStart);
-        
-        calendarData.push({
-          date: date,
-          readingDay: daysSinceStart,
-          isCompleted: isCompleted,
-          hasReading: !!reading,
-          reading: reading ? {
-            oldTestament: `${reading.oldTestament.book} ${reading.oldTestament.startChapter}${reading.oldTestament.endChapter > reading.oldTestament.startChapter ? `-${reading.oldTestament.endChapter}` : ''}`,
-            newTestament: `${reading.newTestament.book} ${reading.newTestament.startChapter}${reading.newTestament.endChapter > reading.newTestament.startChapter ? `-${reading.newTestament.endChapter}` : ''}`
-          } : null
-        });
-      } else {
-        calendarData.push({
-          date: date,
-          readingDay: null,
-          isCompleted: false,
-          hasReading: false,
-          reading: null
-        });
+      let effectiveReadingDay = daysSinceStart;
+      let hasReading = false;
+      let reading = null;
+      let isCompleted = false;
+
+      if (daysSinceStart < 1) {
+        effectiveReadingDay = 365 + (daysSinceStart % 365);
+        if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+      } 
+
+      else if (daysSinceStart > 365) {
+        effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
       }
+
+      if (effectiveReadingDay >= 1 && effectiveReadingDay <= 365) {
+        reading = userProgress.customReadings?.find(r => r.day === effectiveReadingDay);
+        hasReading = !!reading;
+        
+        isCompleted = userProgress.completedDays.some(day => day.day === daysSinceStart);
+      }
+      
+      calendarData.push({
+        date: date,
+        readingDay: daysSinceStart, 
+        effectiveReadingDay: effectiveReadingDay, 
+        isCompleted: isCompleted,
+        hasReading: hasReading,
+        isPastDay: daysSinceStart < 1, 
+        isFutureCycle: daysSinceStart > 365, 
+        reading: reading ? {
+          oldTestament: `${reading.oldTestament.book} ${reading.oldTestament.startChapter}${reading.oldTestament.endChapter > reading.oldTestament.startChapter ? `-${reading.oldTestament.endChapter}` : ''}`,
+          newTestament: `${reading.newTestament.book} ${reading.newTestament.startChapter}${reading.newTestament.endChapter > reading.newTestament.startChapter ? `-${reading.newTestament.endChapter}` : ''}`
+        } : null
+      });
     }
 
     res.status(200).json({
@@ -422,7 +431,8 @@ exports.getCalendarData = async (req, res, next) => {
         year: parseInt(year),
         month: parseInt(month),
         days: calendarData,
-        totalDaysInMonth: daysInMonth
+        totalDaysInMonth: daysInMonth,
+        userStartDate: userProgress.startDate 
       }
     });
   } catch (error) {
