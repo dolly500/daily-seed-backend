@@ -16,18 +16,22 @@ const UserProgressSchema = new mongoose.Schema({
       completedAt: { type: Date, default: Date.now }
     }
   ],
-  customReadings: [
+    customReadings: [
     {
       day: { type: Number, required: true },
       oldTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number, required: true }
+        endChapter: { type: Number, required: true },
+        startVerse: { type: Number }, // Optional
+        endVerse: { type: Number }    // Optional
       },
       newTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number, required: true }
+        endChapter: { type: Number }, // Make optional since verses might span partial chapters
+        startVerse: { type: Number }, // Optional
+        endVerse: { type: Number }    // Optional
       }
     }
   ],

@@ -3,6 +3,10 @@ const User = require('../models/User');
 const BibleContent = require('../models/BibleContent');
 const UserProgress = require('../models/UserProgress');
 const Streak = require('../models/Streak');
+const READING_PLAN_DATA = require('../scripts/readingPlan');
+const axios = require('axios');
+const NodeCache = require('node-cache'); 
+const cache = new NodeCache({ stdTTL: 3600 });
 
 // @desc    Initialize user reading progress
 // @route   POST /api/reading/init
@@ -96,18 +100,21 @@ exports.getReadingByDay = async (req, res, next) => {
       completedDay => completedDay.day === requestedDay
     );
 
-    // Get Bible content for both testaments
-    const otContent = await BibleContent.findOne({
-      version: bibleVersion,
-      book: dayReading.oldTestament.book,
-      chapter: dayReading.oldTestament.startChapter
-    });
-
-    const ntContent = await BibleContent.findOne({
-      version: bibleVersion,
-      book: dayReading.newTestament.book,
-      chapter: dayReading.newTestament.startChapter
-    });
+    // Fetch content from Bible API
+    const [otContent, ntContent] = await Promise.all([
+      fetchBibleContent(
+        dayReading.oldTestament.book,
+        dayReading.oldTestament.startChapter,
+        dayReading.oldTestament.endChapter,
+        bibleVersion
+      ),
+      fetchBibleContent(
+        dayReading.newTestament.book,
+        dayReading.newTestament.startChapter,
+        dayReading.newTestament.endChapter,
+        bibleVersion
+      )
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -119,13 +126,19 @@ exports.getReadingByDay = async (req, res, next) => {
           book: dayReading.oldTestament.book,
           startChapter: dayReading.oldTestament.startChapter,
           endChapter: dayReading.oldTestament.endChapter,
-          content: otContent ? otContent.verses : []
+          content: otContent.verses,
+          reference: otContent.reference,
+          translation: otContent.translation,
+          ...(otContent.error && { error: otContent.error })
         },
         newTestament: {
           book: dayReading.newTestament.book,
           startChapter: dayReading.newTestament.startChapter,
           endChapter: dayReading.newTestament.endChapter,
-          content: ntContent ? ntContent.verses : []
+          content: ntContent.verses,
+          reference: ntContent.reference,
+          translation: ntContent.translation,
+          ...(ntContent.error && { error: ntContent.error })
         }
       }
     });
@@ -138,6 +151,7 @@ exports.getReadingByDay = async (req, res, next) => {
     });
   }
 };
+
 
 // @desc    Get today's reading passage
 // @route   GET /api/reading/today?day=1
@@ -171,17 +185,21 @@ exports.getTodaysReading = async (req, res, next) => {
       });
     }
 
-    const otContent = await BibleContent.findOne({
-      version: bibleVersion,
-      book: dayReading.oldTestament.book,
-      chapter: dayReading.oldTestament.startChapter
-    });
-
-    const ntContent = await BibleContent.findOne({
-      version: bibleVersion,
-      book: dayReading.newTestament.book,
-      chapter: dayReading.newTestament.startChapter
-    });
+    // Fetch content from Bible API instead of local database
+    const [otContent, ntContent] = await Promise.all([
+      fetchBibleContent(
+        dayReading.oldTestament.book,
+        dayReading.oldTestament.startChapter,
+        dayReading.oldTestament.endChapter,
+        bibleVersion
+      ),
+      fetchBibleContent(
+        dayReading.newTestament.book,
+        dayReading.newTestament.startChapter,
+        dayReading.newTestament.endChapter,
+        bibleVersion
+      )
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -192,13 +210,19 @@ exports.getTodaysReading = async (req, res, next) => {
           book: dayReading.oldTestament.book,
           startChapter: dayReading.oldTestament.startChapter,
           endChapter: dayReading.oldTestament.endChapter,
-          content: otContent ? otContent.verses : []
+          content: otContent.verses,
+          reference: otContent.reference,
+          translation: otContent.translation,
+          ...(otContent.error && { error: otContent.error })
         },
         newTestament: {
           book: dayReading.newTestament.book,
           startChapter: dayReading.newTestament.startChapter,
           endChapter: dayReading.newTestament.endChapter,
-          content: ntContent ? ntContent.verses : []
+          content: ntContent.verses,
+          reference: ntContent.reference,
+          translation: ntContent.translation,
+          ...(ntContent.error && { error: ntContent.error })
         }
       }
     });
@@ -211,6 +235,7 @@ exports.getTodaysReading = async (req, res, next) => {
     });
   }
 };
+
 
 // @desc    Mark a specific day's reading as complete
 // @route   POST /api/reading/complete/:day
@@ -412,32 +437,50 @@ exports.getCalendarData = async (req, res, next) => {
 
 // Helper function to generate a full year of Bible readings
 function generateYearlyReadings() {
-  const readings = [];
-  
-  // Sample reading plan - you would replace this with your actual reading plan
-  const oldTestamentBooks = ['Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy'];
-  const newTestamentBooks = ['Matthew', 'Mark', 'Luke', 'John', 'Acts'];
-  
-  for (let day = 1; day <= 365; day++) {
-    const otBookIndex = Math.floor((day - 1) / 73); // Roughly 73 days per OT book
-    const ntBookIndex = Math.floor((day - 1) / 73); // Roughly 73 days per NT book
-    
-    readings.push({
-      day: day,
-      oldTestament: {
-        book: oldTestamentBooks[otBookIndex] ,
-        startChapter: ((day - 1) % 10) + 1,
-        endChapter: ((day - 1) % 10) + 1
-      },
-      newTestament: {
-        book: newTestamentBooks[ntBookIndex],
-        startChapter: ((day - 1) % 8) + 1,
-        endChapter: ((day - 1) % 8) + 1
-      }
-    });
+  if (!READING_PLAN_DATA || !Array.isArray(READING_PLAN_DATA) || READING_PLAN_DATA.length === 0) {
+    throw new Error('Invalid or empty reading plan data');
   }
   
-  return readings;
+  // Transform and validate the data
+  return READING_PLAN_DATA.map((reading, index) => {
+    // Validate required fields
+    if (!reading.day || !reading.oldTestament || !reading.newTestament) {
+      throw new Error(`Invalid reading structure at index ${index}`);
+    }
+    
+    // Ensure all required fields exist
+    const transformedReading = {
+      day: reading.day,
+      oldTestament: {
+        book: reading.oldTestament.book,
+        startChapter: reading.oldTestament.startChapter,
+        // If endChapter is missing, use startChapter
+        endChapter: reading.oldTestament.endChapter || reading.oldTestament.startChapter
+      },
+      newTestament: {
+        book: reading.newTestament.book,
+        startChapter: reading.newTestament.startChapter,
+        // If endChapter is missing, use startChapter  
+        endChapter: reading.newTestament.endChapter || reading.newTestament.startChapter
+      }
+    };
+    
+    // Preserve verse information if it exists
+    if (reading.oldTestament.startVerse) {
+      transformedReading.oldTestament.startVerse = reading.oldTestament.startVerse;
+    }
+    if (reading.oldTestament.endVerse) {
+      transformedReading.oldTestament.endVerse = reading.oldTestament.endVerse;
+    }
+    if (reading.newTestament.startVerse) {
+      transformedReading.newTestament.startVerse = reading.newTestament.startVerse;
+    }
+    if (reading.newTestament.endVerse) {
+      transformedReading.newTestament.endVerse = reading.newTestament.endVerse;
+    }
+    
+    return transformedReading;
+  });
 }
 
 // Helper function to calculate date from reading day
@@ -446,6 +489,70 @@ function calculateDateFromDay(startDate, day) {
   resultDate.setDate(resultDate.getDate() + day - 1);
   return resultDate;
 }
+
+const fetchBibleContentWithCache = async (book, startChapter, endChapter, version = 'kjv') => {
+  const cacheKey = `${book}-${startChapter}-${endChapter}-${version}`;
+  
+  // Check cache first
+  const cachedContent = cache.get(cacheKey);
+  if (cachedContent) {
+    return cachedContent;
+  }
+
+  // Fetch from API if not in cache
+  const content = await fetchBibleContent(book, startChapter, endChapter, version);
+  
+  // Only cache successful responses
+  if (content.verses && content.verses.length > 0) {
+    cache.set(cacheKey, content);
+  }
+
+  return content;
+};
+
+// Helper function to fetch Bible content from Bible API
+const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv') => {
+  try {
+    // Always use both startChapter and endChapter
+    const chapterRange = endChapter && endChapter !== startChapter 
+      ? `${startChapter}-${endChapter}` 
+      : startChapter.toString();
+    
+    // Format the reference for the API
+    const reference = `${book}+${chapterRange}`;
+    
+    // Make request to Bible API
+    const response = await axios.get(`https://bible-api.com/${reference}`, {
+      params: {
+        translation: version.toLowerCase()
+      },
+      timeout: 10000 // 10 second timeout
+    });
+
+    if (response.data && response.data.verses) {
+      return {
+        verses: response.data.verses.map(verse => ({
+          verse: verse.verse,
+          text: verse.text.trim()
+        })),
+        reference: response.data.reference,
+        translation: response.data.translation_name
+      };
+    }
+
+    return { verses: [], reference: '', translation: '' };
+  } catch (error) {
+    console.error(`Error fetching Bible content for ${book} ${startChapter}-${endChapter}:`, error.message);
+    
+    // Return empty content on error to prevent breaking the API
+    return { 
+      verses: [], 
+      reference: `${book} ${startChapter}${endChapter && endChapter !== startChapter ? `-${endChapter}` : ''}`,
+      translation: version.toUpperCase(),
+      error: error.message 
+    };
+  }
+};
 
 // @desc    Get user streak information
 // @route   GET /api/reading/streak
