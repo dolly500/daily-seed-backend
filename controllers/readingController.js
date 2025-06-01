@@ -394,25 +394,27 @@ exports.getCalendarData = async (req, res, next) => {
       let reading = null;
       let isCompleted = false;
 
+      // Handle cycling through the 365-day plan
       if (daysSinceStart < 1) {
         effectiveReadingDay = 365 + (daysSinceStart % 365);
         if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
-      } 
-
-      else if (daysSinceStart > 365) {
+      } else if (daysSinceStart > 365) {
         effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
       }
 
+      // Get the reading for this effective day
       if (effectiveReadingDay >= 1 && effectiveReadingDay <= 365) {
         reading = userProgress.customReadings?.find(r => r.day === effectiveReadingDay);
         hasReading = !!reading;
         
-        isCompleted = userProgress.completedDays.some(day => day.day === daysSinceStart);
+        // FIXED: Check completion using effectiveReadingDay instead of daysSinceStart
+        // This aligns with how getReadingByDay and getTodaysReading work
+        isCompleted = userProgress.completedDays.some(day => day.day === effectiveReadingDay);
       }
       
       calendarData.push({
         date: date,
-        readingDay: daysSinceStart, 
+        readingDay: effectiveReadingDay, // Changed from daysSinceStart to effectiveReadingDay
         effectiveReadingDay: effectiveReadingDay, 
         isCompleted: isCompleted,
         hasReading: hasReading,
