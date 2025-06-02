@@ -22,10 +22,14 @@ const auth = passport.authenticate('jwt', { session: false });
 
 // Basic reading routes
 router.post('/init', auth, initUserProgress);
+router.get('/day/:year/:month/:day', auth, getReadingByDay);
 router.get('/streak', auth, getStreak);
 router.get('/streak-history', auth, getStreakHistory);
+
+// no of books out of 66 books
 router.get('/progress', auth, getProgress);
-router.get('/day/:year/:month/:day', auth, getReadingByDay);
+
+
 
 
 // Calendar and detailed progress routes
