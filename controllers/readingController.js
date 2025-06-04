@@ -241,46 +241,472 @@ function calculateDateFromDay(startDate, day) {
 
 
 // Helper function to fetch Bible content from Bible API
-const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv') => {
-  try {
-    // Always use both startChapter and endChapter
-    const chapterRange = endChapter && endChapter !== startChapter 
-      ? `${startChapter}-${endChapter}` 
-      : startChapter.toString();
-    
-    // Format the reference for the API
-    const reference = `${book}+${chapterRange}`;
-    
-    // Make request to Bible API
-    const response = await axios.get(`https://bible-api.com/${reference}`, {
-      params: {
-        translation: version.toLowerCase()
-      },
-      timeout: 10000 // 10 second timeout
-    });
+const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv', maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const chapterRange = endChapter && endChapter !== startChapter 
+        ? `${startChapter}-${endChapter}` 
+        : startChapter.toString();
+      
+      const reference = `${book}+${chapterRange}`;
+      
+      const response = await axios.get(`https://bible-api.com/${reference}`, {
+        params: {
+          translation: version.toLowerCase()
+        },
+        timeout: 10000
+      });
 
-    if (response.data && response.data.verses) {
-      return {
-        verses: response.data.verses.map(verse => ({
-          verse: verse.verse,
-          text: verse.text.trim()
-        })),
-        reference: response.data.reference,
-        translation: response.data.translation_name
-      };
+      if (response.data && response.data.verses) {
+        return {
+          verses: response.data.verses.map(verse => ({
+            verse: verse.verse,
+            text: verse.text.trim()
+          })),
+          reference: response.data.reference,
+          translation: response.data.translation_name
+        };
+      }
+
+      return { verses: [], reference: '', translation: '' };
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed for ${book} ${startChapter}-${endChapter}:`, error.message);
+      
+      // If last attempt, return error response
+      if (attempt === maxRetries) {
+        return { 
+          verses: [], 
+          reference: `${book} ${startChapter}${endChapter && endChapter !== startChapter ? `-${endChapter}` : ''}`,
+          translation: version.toUpperCase(),
+          error: `Failed after ${maxRetries} attempts: ${error.message}` 
+        };
+      }
+      
+      // Wait before retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+};
+
+
+// @desc    Get all available Bible versions
+// @route   GET /api/reading/bible-versions
+// @access  Private
+exports.getBibleVersions = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    return { verses: [], reference: '', translation: '' };
+    // Common Bible versions with their API codes
+    const bibleVersions = [
+      {
+        id: 'kjv',
+        name: 'King James Version',
+        abbreviation: 'KJV',
+        language: 'English',
+        year: 1611,
+        description: 'Traditional English translation'
+      },
+      {
+        id: 'web',
+        name: 'World English Bible',
+        abbreviation: 'WEB',
+        language: 'English',
+        year: 2000,
+        description: 'Public domain modern English translation'
+      },
+      {
+        id: 'net',
+        name: 'New English Translation',
+        abbreviation: 'NET',
+        language: 'English',
+        year: 2005,
+        description: 'Contemporary English with extensive notes'
+      },
+      {
+        id: 'nasb',
+        name: 'New American Standard Bible',
+        abbreviation: 'NASB',
+        language: 'English',
+        year: 1995,
+        description: 'Literal translation for study'
+      },
+      {
+        id: 'niv',
+        name: 'New International Version',
+        abbreviation: 'NIV',
+        language: 'English',
+        year: 2011,
+        description: 'Popular contemporary translation'
+      },
+      {
+        id: 'esv',
+        name: 'English Standard Version',
+        abbreviation: 'ESV',
+        language: 'English',
+        year: 2001,
+        description: 'Literal yet readable translation'
+      },
+      {
+        id: 'nlt',
+        name: 'New Living Translation',
+        abbreviation: 'NLT',
+        language: 'English',
+        year: 2015,
+        description: 'Thought-for-thought translation'
+      },
+      {
+        id: 'msg',
+        name: 'The Message',
+        abbreviation: 'MSG',
+        language: 'English',
+        year: 2002,
+        description: 'Contemporary paraphrase'
+      }
+    ];
+
+    // Get user's current preferred version
+    const user = await User.findById(req.user.id);
+    const currentVersion = user.preferredBibleVersion || 'kjv';
+
+    res.status(200).json({
+      success: true,
+      data: {
+        versions: bibleVersions,
+        currentVersion: currentVersion,
+        totalVersions: bibleVersions.length
+      }
+    });
+
   } catch (error) {
-    console.error(`Error fetching Bible content for ${book} ${startChapter}-${endChapter}:`, error.message);
+    console.error('Error getting Bible versions:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+
+// @desc    Mark Old Testament reading as complete for a specific day
+// @route   PUT /api/reading/complete-old-testament/:day
+// @access  Private
+exports.markOldTestamentComplete = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { day } = req.params;
+    const readingDay = parseInt(day);
+
+    // Validate day parameter
+    if (!readingDay || readingDay < 1 || readingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid day parameter. Must be between 1 and 365.'
+      });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    if (!userProgress) {
+      return res.status(404).json({
+        success: false,
+        message: 'No reading progress found'
+      });
+    }
+
+    // Find or create completion record for this day
+    let dayCompletion = userProgress.completedDays.find(
+      completedDay => completedDay.day === readingDay
+    );
+
+    if (!dayCompletion) {
+      // Create new completion record
+      dayCompletion = {
+        day: readingDay,
+        oldTestamentComplete: true,
+        newTestamentComplete: false,
+        completedAt: new Date()
+      };
+      userProgress.completedDays.push(dayCompletion);
+    } else {
+      // Update existing record
+      dayCompletion.oldTestamentComplete = true;
+      if (!dayCompletion.completedAt) {
+        dayCompletion.completedAt = new Date();
+      }
+    }
+
+    // Update overall completion status for the day
+    const isFullyComplete = dayCompletion.oldTestamentComplete && dayCompletion.newTestamentComplete;
     
-    // Return empty content on error to prevent breaking the API
-    return { 
-      verses: [], 
-      reference: `${book} ${startChapter}${endChapter && endChapter !== startChapter ? `-${endChapter}` : ''}`,
-      translation: version.toUpperCase(),
-      error: error.message 
-    };
+    // Update user's current day if this is the next sequential day
+    if (readingDay === userProgress.currentDay && isFullyComplete) {
+      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    }
+
+    // Recalculate percentage complete
+    const fullyCompletedDays = userProgress.completedDays.filter(
+      day => day.oldTestamentComplete && day.newTestamentComplete
+    ).length;
+    userProgress.percentageComplete = Math.round((fullyCompletedDays / 365) * 100);
+
+    await userProgress.save();
+
+    // Update streak if day is fully complete
+    if (isFullyComplete) {
+      await updateUserStreak(req.user.id);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Old Testament reading marked as complete',
+      data: {
+        day: readingDay,
+        oldTestamentComplete: true,
+        newTestamentComplete: dayCompletion.newTestamentComplete,
+        fullyComplete: isFullyComplete,
+        currentDay: userProgress.currentDay,
+        percentageComplete: userProgress.percentageComplete
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking Old Testament complete:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Mark New Testament reading as complete for a specific day
+// @route   PUT /api/reading/complete-new-testament/:day
+// @access  Private
+exports.markNewTestamentComplete = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { day } = req.params;
+    const readingDay = parseInt(day);
+
+    // Validate day parameter
+    if (!readingDay || readingDay < 1 || readingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid day parameter. Must be between 1 and 365.'
+      });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    if (!userProgress) {
+      return res.status(404).json({
+        success: false,
+        message: 'No reading progress found'
+      });
+    }
+
+    // Find or create completion record for this day
+    let dayCompletion = userProgress.completedDays.find(
+      completedDay => completedDay.day === readingDay
+    );
+
+    if (!dayCompletion) {
+      // Create new completion record
+      dayCompletion = {
+        day: readingDay,
+        oldTestamentComplete: false,
+        newTestamentComplete: true,
+        completedAt: new Date()
+      };
+      userProgress.completedDays.push(dayCompletion);
+    } else {
+      // Update existing record
+      dayCompletion.newTestamentComplete = true;
+      if (!dayCompletion.completedAt) {
+        dayCompletion.completedAt = new Date();
+      }
+    }
+
+    // Update overall completion status for the day
+    const isFullyComplete = dayCompletion.oldTestamentComplete && dayCompletion.newTestamentComplete;
+    
+    // Update user's current day if this is the next sequential day
+    if (readingDay === userProgress.currentDay && isFullyComplete) {
+      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    }
+
+    // Recalculate percentage complete
+    const fullyCompletedDays = userProgress.completedDays.filter(
+      day => day.oldTestamentComplete && day.newTestamentComplete
+    ).length;
+    userProgress.percentageComplete = Math.round((fullyCompletedDays / 365) * 100);
+
+    await userProgress.save();
+
+    // Update streak if day is fully complete
+    if (isFullyComplete) {
+      await updateUserStreak(req.user.id);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'New Testament reading marked as complete',
+      data: {
+        day: readingDay,
+        oldTestamentComplete: dayCompletion.oldTestamentComplete,
+        newTestamentComplete: true,
+        fullyComplete: isFullyComplete,
+        currentDay: userProgress.currentDay,
+        percentageComplete: userProgress.percentageComplete
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking New Testament complete:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Mark both Old and New Testament as complete for a specific day
+// @route   PUT /api/reading/complete-day/:day
+// @access  Private
+exports.markDayComplete = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { day } = req.params;
+    const readingDay = parseInt(day);
+
+    // Validate day parameter
+    if (!readingDay || readingDay < 1 || readingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid day parameter. Must be between 1 and 365.'
+      });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    if (!userProgress) {
+      return res.status(404).json({
+        success: false,
+        message: 'No reading progress found'
+      });
+    }
+
+    // Find or create completion record for this day
+    let dayCompletion = userProgress.completedDays.find(
+      completedDay => completedDay.day === readingDay
+    );
+
+    if (!dayCompletion) {
+      // Create new completion record
+      dayCompletion = {
+        day: readingDay,
+        oldTestamentComplete: true,
+        newTestamentComplete: true,
+        completedAt: new Date()
+      };
+      userProgress.completedDays.push(dayCompletion);
+    } else {
+      // Update existing record
+      dayCompletion.oldTestamentComplete = true;
+      dayCompletion.newTestamentComplete = true;
+      dayCompletion.completedAt = new Date();
+    }
+
+    // Update user's current day if this is the next sequential day
+    if (readingDay === userProgress.currentDay) {
+      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    }
+
+    // Recalculate percentage complete
+    const fullyCompletedDays = userProgress.completedDays.filter(
+      day => day.oldTestamentComplete && day.newTestamentComplete
+    ).length;
+    userProgress.percentageComplete = Math.round((fullyCompletedDays / 365) * 100);
+
+    await userProgress.save();
+
+    // Update streak
+    await updateUserStreak(req.user.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Day marked as fully complete',
+      data: {
+        day: readingDay,
+        oldTestamentComplete: true,
+        newTestamentComplete: true,
+        fullyComplete: true,
+        currentDay: userProgress.currentDay,
+        percentageComplete: userProgress.percentageComplete
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking day complete:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to update user streak
+const updateUserStreak = async (userId) => {
+  try {
+    let streak = await Streak.findOne({ user: userId });
+    
+    if (!streak) {
+      streak = new Streak({ user: userId });
+    }
+
+    const today = new Date();
+    const lastCheckIn = streak.lastCheckIn ? new Date(streak.lastCheckIn) : null;
+    
+    // Check if this is a consecutive day
+    if (lastCheckIn) {
+      const daysDifference = Math.floor((today - lastCheckIn) / (1000 * 60 * 60 * 24));
+      
+      if (daysDifference === 1) {
+        // Consecutive day - increment streak
+        streak.currentStreak += 1;
+      } else if (daysDifference > 1) {
+        // Missed days - reset streak
+        streak.currentStreak = 1;
+      }
+      // If daysDifference === 0, same day - don't increment
+    } else {
+      // First check-in
+      streak.currentStreak = 1;
+    }
+
+    // Update longest streak if current is higher
+    if (streak.currentStreak > streak.longestStreak) {
+      streak.longestStreak = streak.currentStreak;
+    }
+
+    streak.lastCheckIn = today;
+    await streak.save();
+
+    return streak;
+  } catch (error) {
+    console.error('Error updating streak:', error);
+    throw error;
   }
 };
 
@@ -334,7 +760,7 @@ exports.getStreakHistory = async (req, res, next) => {
   }
 };
 
-// @desc    Get user's reading progress
+// @desc    Get user's reading progress (IMPROVED)
 // @route   GET /api/reading/progress
 // @access  Private
 exports.getProgress = async (req, res, next) => {
@@ -348,21 +774,27 @@ exports.getProgress = async (req, res, next) => {
       });
     }
 
-    const completedBooks = userProgress.booksRead.filter(book => book.completed).length;
+    // FIX: Add null safety for booksRead
+    const completedBooks = userProgress.booksRead?.filter(book => book.completed)?.length || 0;
+    const totalCompletedDays = userProgress.completedDays?.length || 0;
 
     res.status(200).json({
       success: true,
       progress: {
-        currentDay: userProgress.currentDay,
-        completedDays: userProgress.completedDays.length,
-        percentageComplete: userProgress.percentageComplete,
+        currentDay: userProgress.currentDay || 1,
+        completedDays: totalCompletedDays,
+        percentageComplete: userProgress.percentageComplete || 0,
         booksCompleted: completedBooks,
         totalBooks: 66
       }
     });
   } catch (error) {
-    console.error(error);
-    next(error);
+    console.error('Error in getProgress:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
   }
 };
 
@@ -370,13 +802,22 @@ exports.getProgress = async (req, res, next) => {
 // @desc    Get yearly progress statistics
 // @route   GET /api/reading/yearly-progress/:year
 // @access  Private
+
 exports.getYearlyProgress = async (req, res, next) => {
   try {
     const { year } = req.params;
-    const currentYear = year || new Date().getFullYear();
+    const currentYear = parseInt(year) || new Date().getFullYear();
     
     if (!req.user || !req.user.id) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // FIX: Validate year parameter
+    if (currentYear < 2020 || currentYear > 2030) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid year parameter'
+      });
     }
 
     const userProgress = await UserProgress.findOne({ user: req.user.id });
@@ -392,26 +833,32 @@ exports.getYearlyProgress = async (req, res, next) => {
     const endOfYear = new Date(currentYear, 11, 31);
     const today = new Date();
 
-    const completedDaysThisYear = userProgress.completedDays.filter(day => {
+    // FIX: Add null safety for completedDays
+    const completedDaysThisYear = (userProgress.completedDays || []).filter(day => {
+      if (!day.completedAt) return false;
       const completedDate = new Date(day.completedAt);
       return completedDate >= startOfYear && completedDate <= endOfYear;
     });
 
-    const daysPassed = Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+    // FIX: Better date calculation
+    const daysPassed = Math.min(
+      Math.max(1, Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24)) + 1),
+      365
+    );
+    
     const totalDaysInYear = ((currentYear % 4 === 0 && currentYear % 100 !== 0) || (currentYear % 400 === 0)) ? 366 : 365;
-
     const yearlyPercentage = Math.round((completedDaysThisYear.length / totalDaysInYear) * 100);
 
     res.status(200).json({
       success: true,
       yearlyProgress: {
-        year: parseInt(currentYear),
+        year: currentYear,
         completedDays: completedDaysThisYear.length,
         totalDaysInYear: totalDaysInYear,
         daysPassed: Math.min(daysPassed, totalDaysInYear),
         percentageComplete: yearlyPercentage,
-        averageDaysPerMonth: Math.round(completedDaysThisYear.length / 12 * 10) / 10,
-        onTrack: completedDaysThisYear.length >= daysPassed * 0.8
+        averageDaysPerMonth: Math.round((completedDaysThisYear.length / 12) * 10) / 10,
+        onTrack: completedDaysThisYear.length >= (daysPassed * 0.8)
       }
     });
   } catch (error) {
@@ -423,6 +870,7 @@ exports.getYearlyProgress = async (req, res, next) => {
     });
   }
 };
+
 
 
 

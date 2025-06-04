@@ -8,13 +8,17 @@ const {
   initUserProgress,
   getStreakHistory,
   getReadingByDay,
+  getBibleVersions,
+  markOldTestamentComplete,
+  markNewTestamentComplete,
+  markDayComplete,
   // Calendar and progress routes
   getYearlyProgress,
   // Notes routes
   addNote,
   getNotes,
   updateNote,
-  deleteNote
+  deleteNote,
 } = require('../controllers/readingController');
 
 // Middleware
@@ -25,6 +29,10 @@ router.post('/init', auth, initUserProgress);
 router.get('/day/:year/:month/:day', auth, getReadingByDay);
 router.get('/streak', auth, getStreak);
 router.get('/streak-history', auth, getStreakHistory);
+router.get('/bible-versions', auth, getBibleVersions);
+router.put('/complete-old-testament/:day', auth, markOldTestamentComplete);
+router.put('/complete-new-testament/:day', auth, markNewTestamentComplete);
+router.put('/complete-day/:day', auth, markDayComplete)
 
 // no of books out of 66 books
 router.get('/progress', auth, getProgress);
@@ -32,7 +40,7 @@ router.get('/progress', auth, getProgress);
 
 
 
-// Calendar and detailed progress routes
+// yearly progress routes
 router.get('/yearly-progress/:year?', auth, getYearlyProgress);
 
 
