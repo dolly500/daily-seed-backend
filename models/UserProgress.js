@@ -16,7 +16,7 @@ const UserProgressSchema = new mongoose.Schema({
       completedAt: { type: Date, default: Date.now }
     }
   ],
-    customReadings: [
+  customReadings: [
     {
       day: { type: Number, required: true },
       oldTestament: {
@@ -67,37 +67,97 @@ const UserProgressSchema = new mongoose.Schema({
     default: 0
   },
   // Notes field for storing user's notes on daily readings
- notes: [
-  {
-    verse: {
-      type: String,
-      trim: true
-    },
-    note: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now
+  notes: [
+    {
+      verse: {
+        type: String,
+        trim: true
+      },
+      note: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now
+      },
+      updatedAt: {
+        type: Date,
+        default: Date.now
+      }
     }
-  }
-]
-
+  ],
+  // Highlights field for storing user's verse highlights
+  highlights: [
+    {
+      verse: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      verseText: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      book: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      chapter: {
+        type: Number,
+        required: true
+      },
+      color: {
+        type: String,
+        enum: ['yellow', 'green', 'blue', 'pink', 'orange', 'purple', 'red'],
+        default: 'yellow'
+      },
+      note: {
+        type: String,
+        trim: true
+      },
+      day: {
+        type: Number, // Optional: which reading day this belongs to
+        min: 1,
+        max: 365
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now
+      },
+      updatedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }
+  ]
 }, { timestamps: true });
-
-
 
 // Calculate progress percentage based on completed days
 UserProgressSchema.methods.calculateProgress = function(totalDays = 365) {
   const completedDaysCount = this.completedDays.length;
   const percentage = (completedDaysCount / totalDays) * 100;
   return Math.round(percentage * 100) / 100;
+};
+
+// Method to get highlights by book
+UserProgressSchema.methods.getHighlightsByBook = function(bookName) {
+  return this.highlights.filter(highlight => 
+    highlight.book.toLowerCase() === bookName.toLowerCase()
+  );
+};
+
+// Method to get highlights by color
+UserProgressSchema.methods.getHighlightsByColor = function(color) {
+  return this.highlights.filter(highlight => highlight.color === color);
+};
+
+// Method to get highlights for a specific day
+UserProgressSchema.methods.getHighlightsByDay = function(day) {
+  return this.highlights.filter(highlight => highlight.day === day);
 };
 
 module.exports = mongoose.model('UserProgress', UserProgressSchema);

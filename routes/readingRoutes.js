@@ -19,6 +19,11 @@ const {
   getNotes,
   updateNote,
   deleteNote,
+
+  // hightlights
+  addHighlight,
+  getHighlights,
+  deleteHighlight,
 } = require('../controllers/readingController');
 
 // Middleware
@@ -50,5 +55,13 @@ router.get('/notes/:id', auth, getNotes);
 router.get('/notes', auth, getNotes);
 router.put('/notes/:id', auth, updateNote);
 router.delete('/notes/:id', auth, deleteNote);
+
+
+
+// highlight routes
+
+router.post('/highlights', auth, addHighlight);
+router.get('/highlights', auth, getHighlights);
+router.delete('/highlights/:id', auth, deleteHighlight)
 
 module.exports = router;

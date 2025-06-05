@@ -1024,3 +1024,172 @@ exports.deleteNote = async (req, res, next) => {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
+
+
+// ===================== HIGHLIGHTS FUNCTIONALITY =====================
+// Add these endpoints to your existing reading controller
+
+// @desc    Add a highlight for a specific verse
+// @route   POST /api/reading/highlights
+// @access  Private
+exports.addHighlight = async (req, res) => {
+  try {
+    const { verse, verseText, book, chapter, color, day } = req.body;
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Validate required fields
+    if (!verse || !verseText || !book || !chapter) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Verse, verseText, book, and chapter are required' 
+      });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+
+    if (!userProgress) {
+      return res.status(404).json({ success: false, message: 'No reading progress found' });
+    }
+
+    // Initialize highlights array if it doesn't exist
+    if (!userProgress.highlights) {
+      userProgress.highlights = [];
+    }
+
+    const newHighlight = {
+      verse: verse.trim(),
+      verseText: verseText.trim(),
+      book: book.trim(),
+      chapter: parseInt(chapter),
+      color: color || 'yellow', // Default highlight color
+      day: day || null, // Optional: which reading day this belongs to
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    userProgress.highlights.push(newHighlight);
+    await userProgress.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Highlight added successfully',
+      highlight: newHighlight
+    });
+  } catch (error) {
+    console.error('Error adding highlight:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error', 
+      error: error.message 
+    });
+  }
+};
+
+
+// @desc    Get highlights for a specific highlight by ID or all highlights
+// @route   GET /api/reading/highlights/:id?
+// @access  Private
+exports.getHighlights = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { book, chapter, day, color } = req.query;
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+
+    if (!userProgress) {
+      return res.status(404).json({ success: false, message: 'No reading progress found' });
+    }
+
+    let highlights = userProgress.highlights || [];
+
+    // Get specific highlight by ID
+    if (id) {
+      const highlight = highlights.find(h => h._id.toString() === id);
+      if (!highlight) {
+        return res.status(404).json({ success: false, message: 'Highlight not found' });
+      }
+      return res.status(200).json({ success: true, highlight });
+    }
+
+    // Filter highlights based on query parameters
+    if (book) {
+      highlights = highlights.filter(h => h.book.toLowerCase() === book.toLowerCase());
+    }
+    if (chapter) {
+      highlights = highlights.filter(h => h.chapter === parseInt(chapter));
+    }
+    if (day) {
+      highlights = highlights.filter(h => h.day === parseInt(day));
+    }
+    if (color) {
+      highlights = highlights.filter(h => h.color === color);
+    }
+
+    // Sort highlights by creation date (newest first)
+    highlights.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.status(200).json({ 
+      success: true, 
+      highlights, 
+      totalHighlights: highlights.length 
+    });
+  } catch (error) {
+    console.error('Error getting highlights:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error', 
+      error: error.message 
+    });
+  }
+};
+
+
+// @desc    Delete a highlight
+// @route   DELETE /api/reading/highlights/:id
+// @access  Private
+exports.deleteHighlight = async (req, res) => {
+  try {
+    const highlightId = req.params.id;
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+
+    if (!userProgress || !userProgress.highlights) {
+      return res.status(404).json({ success: false, message: 'No highlights found' });
+    }
+
+    const initialLength = userProgress.highlights.length;
+    userProgress.highlights = userProgress.highlights.filter(
+      highlight => highlight._id.toString() !== highlightId
+    );
+
+    if (userProgress.highlights.length === initialLength) {
+      return res.status(404).json({ success: false, message: 'Highlight not found' });
+    }
+
+    await userProgress.save();
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Highlight deleted successfully' 
+    });
+  } catch (error) {
+    console.error('Error deleting highlight:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error',
+      error: error.message 
+    });
+  }
+};
