@@ -5,32 +5,49 @@ const auth = require('../middleware/auth');
 const {
   createCommunity,
   getCommunities,
+  getCommunity,
+  updateCommunitySettings,
+  deleteCommunity,
   joinCommunity,
   leaveCommunity,
   getCommunityMessages,
   sendMessage,
-  getMyCommunities
+  getFlaggedMessages,
+  toggleMessageFlag
 } = require('../controllers/communityController');
 
 // Get all communities with pagination and search
 router.get('/communities', auth, getCommunities);
 
-// Get user's joined communities
-router.get('/communities/my-communities', auth, getMyCommunities);
 
-// Create new community
+// Create new community (Admin only)
 router.post('/communities', auth, createCommunity);
 
-// Join a community
+// Get specific community details
+router.get('/communities/:id', auth, getCommunity);
+
+// Update community settings (Admin/Moderator only)
+router.put('/communities/:id/settings', auth, updateCommunitySettings);
+
+// Delete community (Admin only)
+router.delete('/communities/:id', auth, deleteCommunity);
+
+// Join a community(Admin and user only)
 router.post('/communities/:id/join', auth, joinCommunity);
 
-// Leave a community
+// Leave a community(user)
 router.delete('/communities/:id/leave', auth, leaveCommunity);
 
-// Get community messages
+// Get community messages(admin/user)
 router.get('/communities/:id/messages', auth, getCommunityMessages);
 
-// Send message to community
+// Send message to community(user)
 router.post('/communities/:id/messages', auth, sendMessage);
+
+// Get flagged messages (Admin/Moderator only)
+router.get('/communities/:id/flagged-messages', auth, getFlaggedMessages);
+
+// Flag/Unflag message (Admin/Moderator only)
+router.put('/communities/:id/messages/:messageId/flag', auth, toggleMessageFlag);
 
 module.exports = router;

@@ -57,9 +57,7 @@ router.put('/notes/:id', auth, updateNote);
 router.delete('/notes/:id', auth, deleteNote);
 
 
-
 // highlight routes
-
 router.post('/highlights', auth, addHighlight);
 router.get('/highlights', auth, getHighlights);
 router.delete('/highlights/:id', auth, deleteHighlight)

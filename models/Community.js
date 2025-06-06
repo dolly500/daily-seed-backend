@@ -1,4 +1,3 @@
-
 // models/Community.js
 const mongoose = require('mongoose');
 
@@ -47,6 +46,21 @@ const communitySchema = new mongoose.Schema({
     maxMembers: {
       type: Number,
       default: 1000
+    }
+  },
+  // Add the policy field that your controller is looking for
+  policy: {
+    openToAllUsers: {
+      type: Boolean,
+      default: true // Set default based on your business logic
+    },
+    allowInvitations: {
+      type: Boolean,
+      default: true
+    },
+    moderatorApproval: {
+      type: Boolean,
+      default: false
     }
   },
   isActive: {
