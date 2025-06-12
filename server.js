@@ -35,6 +35,7 @@ app.use('/api/reading', require('./routes/readingRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'))
 app.use('/api/posts', require('./routes/postRoutes'));
 app.use('/api/communities', require('./routes/communityRoutes'));
+app.use('/api/notifications', require('./routes/NotificationRoutes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

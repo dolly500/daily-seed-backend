@@ -46,14 +46,35 @@ const UserSchema = new mongoose.Schema(
       enum: ['user', 'admin'],
       default: 'user'
     },
-     passwordResetCode: {
-    type: String,
-    select: false 
-  },
-  passwordResetExpires: {
-    type: Date,
-    select: false 
-  }
+    passwordResetCode: {
+      type: String,
+      select: false 
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false 
+    },
+
+    // Push notification fields
+    fcmTokens: [
+      {
+        token: String,
+        deviceId: String,
+        platform: {
+          type: String,
+          enum: ['ios', 'android']
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
+    pushNotificationsEnabled: {
+      type: Boolean,
+      default: true
+    }
+
   },
   {
     timestamps: true

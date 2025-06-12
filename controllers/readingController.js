@@ -182,6 +182,129 @@ exports.getReadingByDay = async (req, res, next) => {
 };
 
 
+// @desc    Get reading progress for a specific month (calendar view)
+// @route   GET /api/reading/calendar/:year/:month
+// @access  Private
+exports.getCalendarData = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { year, month } = req.params;
+
+    // Validate year and month parameters
+    const parsedYear = parseInt(year);
+    const parsedMonth = parseInt(month);
+    if (
+      isNaN(parsedYear) ||
+      isNaN(parsedMonth) ||
+      parsedMonth < 1 ||
+      parsedMonth > 12 ||
+      parsedYear < 2020 ||
+      parsedYear > 2030
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid year or month parameters',
+      });
+    }
+
+    // Calculate the start and end dates of the month
+    const startOfMonth = new Date(parsedYear, parsedMonth - 1, 1);
+    const endOfMonth = new Date(parsedYear, parsedMonth, 0); // Last day of the month
+    const daysInMonth = endOfMonth.getDate();
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    if (!userProgress) {
+      return res.status(404).json({
+        success: false,
+        message: 'No reading progress found',
+      });
+    }
+
+    // Initialize calendar data array
+    const calendarData = [];
+
+    // Iterate through each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = new Date(parsedYear, parsedMonth - 1, day);
+
+      // Calculate days since start date
+      const daysSinceStart = Math.floor(
+        (currentDate - userProgress.startDate) / (1000 * 60 * 60 * 24)
+      ) + 1;
+
+      // Calculate effective reading day (cycling through 365-day plan)
+      let effectiveReadingDay = daysSinceStart;
+      if (daysSinceStart < 1) {
+        effectiveReadingDay = 365 + (daysSinceStart % 365);
+        if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+      } else if (daysSinceStart > 365) {
+        effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
+      }
+
+      // Find the reading for the effective day
+      const dayReading = userProgress.customReadings?.find(
+        (r) => r.day === effectiveReadingDay
+      );
+
+      // Check if this day is completed
+      const dayCompletion = userProgress.completedDays.find(
+        (completedDay) => completedDay.day === effectiveReadingDay
+      );
+      const isCompleted = dayCompletion
+        ? dayCompletion.oldTestamentComplete && dayCompletion.newTestamentComplete
+        : false;
+
+      // Add day data to calendar
+      calendarData.push({
+        date: currentDate,
+        dayOfMonth: day,
+        readingDay: effectiveReadingDay,
+        isCompleted: isCompleted,
+        oldTestament: dayReading
+          ? {
+              book: dayReading.oldTestament.book,
+              startChapter: dayReading.oldTestament.startChapter,
+              endChapter: dayReading.oldTestament.endChapter,
+              startVerse: dayReading.oldTestament.startVerse || null,
+              endVerse: dayReading.oldTestament.endVerse || null,
+            }
+          : null,
+        newTestament: dayReading
+          ? {
+              book: dayReading.newTestament.book,
+              startChapter: dayReading.newTestament.startChapter,
+              endChapter: dayReading.newTestament.endChapter,
+              startVerse: dayReading.newTestament.startVerse || null,
+              endVerse: dayReading.newTestament.endVerse || null,
+            }
+          : null,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      calendarData: {
+        year: parsedYear,
+        month: parsedMonth,
+        days: calendarData,
+        totalDays: daysInMonth,
+        completedDays: calendarData.filter((day) => day.isCompleted).length,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCalendarData:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message,
+    });
+  }
+};
+
+
 
 
 // Helper function to generate a full year of Bible readings
