@@ -68,8 +68,8 @@ exports.getReadingByDay = async (req, res, next) => {
 
     const { year, month, day } = req.params;
 
-    // Validate date parameters
-    const requestedDate = new Date(year, month - 1, day);
+    // Validate date parameters and create date in UTC to avoid timezone issues
+    const requestedDate = new Date(Date.UTC(year, month - 1, day));
     if (isNaN(requestedDate.getTime()) || 
         parseInt(day) < 1 || 
         parseInt(day) > new Date(year, month, 0).getDate()) {
@@ -148,7 +148,8 @@ exports.getReadingByDay = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       reading: {
-        day: effectiveReadingDay,
+        day: parseInt(day), // Return the actual calendar day selected
+        readingDay: parseInt(day), // Same as day
         date: requestedDate,
         isCompleted: isCompleted,
         oldTestament: {
