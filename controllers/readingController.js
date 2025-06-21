@@ -751,10 +751,8 @@ exports.markDayComplete = async (req, res, next) => {
       dayCompletion.completedAt = new Date();
     }
 
-    // Update user's current day if this is the next sequential day
-    if (readingDay === userProgress.currentDay) {
-      userProgress.currentDay = Math.min(readingDay + 1, 365);
-    }
+    // Update user's current day to align with the completed day
+    userProgress.currentDay = readingDay;
 
     // Recalculate percentage complete
     const fullyCompletedDays = userProgress.completedDays.filter(
@@ -764,7 +762,7 @@ exports.markDayComplete = async (req, res, next) => {
 
     await userProgress.save();
 
-    // Update streak
+    // Update streak since day is fully complete
     await updateUserStreak(req.user.id);
 
     res.status(200).json({
@@ -789,6 +787,7 @@ exports.markDayComplete = async (req, res, next) => {
     });
   }
 };
+
 
 // Helper function to update user streak
 const updateUserStreak = async (userId) => {
