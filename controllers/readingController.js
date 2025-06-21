@@ -754,9 +754,8 @@ exports.markDayComplete = async (req, res, next) => {
       }
     }
 
-    // Update user's current day to match the individual endpoints' logic
-    // Only advance currentDay if this day equals currentDay (sequential completion)
-    if (readingDay === userProgress.currentDay) {
+    // Update user's current day - advance to at least the completed day + 1
+    if (readingDay >= userProgress.currentDay) {
       userProgress.currentDay = Math.min(readingDay + 1, 365);
     }
 
