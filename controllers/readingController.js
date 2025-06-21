@@ -702,6 +702,7 @@ exports.markNewTestamentComplete = async (req, res, next) => {
   }
 };
 
+
 // @desc    Mark both Old and New Testament as complete for a specific day
 // @route   PUT /api/reading/complete-day/:day
 // @access  Private
