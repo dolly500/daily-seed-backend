@@ -745,14 +745,19 @@ exports.markDayComplete = async (req, res, next) => {
       };
       userProgress.completedDays.push(dayCompletion);
     } else {
-      // Update existing record
+      // Update existing record - preserve original completedAt if it exists
       dayCompletion.oldTestamentComplete = true;
       dayCompletion.newTestamentComplete = true;
-      dayCompletion.completedAt = new Date();
+      if (!dayCompletion.completedAt) {
+        dayCompletion.completedAt = new Date();
+      }
     }
 
-    // Update user's current day to align with the completed day
-    userProgress.currentDay = readingDay;
+    // Update user's current day to match the individual endpoints' logic
+    // Only advance currentDay if this day equals currentDay (sequential completion)
+    if (readingDay === userProgress.currentDay) {
+      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    }
 
     // Recalculate percentage complete
     const fullyCompletedDays = userProgress.completedDays.filter(
