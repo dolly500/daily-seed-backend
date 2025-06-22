@@ -514,8 +514,9 @@ exports.getBibleVersions = async (req, res, next) => {
 };
 
 
-// @desc    Mark Old Testament reading as complete for a specific day
-// @route   PUT /api/reading/complete-old-testament/:day
+
+// @desc    Mark Old Testament reading as complete for a specific date
+// @route   PUT /api/reading/complete-old-testament/:year/:month/:day
 // @access  Private
 exports.markOldTestamentComplete = async (req, res, next) => {
   try {
@@ -523,14 +524,16 @@ exports.markOldTestamentComplete = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const { day } = req.params;
-    const readingDay = parseInt(day);
+    const { year, month, day } = req.params;
 
-    // Validate day parameter
-    if (!readingDay || readingDay < 1 || readingDay > 365) {
+    // Validate date parameters and create date in UTC to avoid timezone issues
+    const requestedDate = new Date(Date.UTC(year, month - 1, day));
+    if (isNaN(requestedDate.getTime()) || 
+        parseInt(day) < 1 || 
+        parseInt(day) > new Date(year, month, 0).getDate()) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid day parameter. Must be between 1 and 365.'
+        message: 'Invalid date parameters'
       });
     }
 
@@ -542,15 +545,37 @@ exports.markOldTestamentComplete = async (req, res, next) => {
       });
     }
 
+    // Calculate days since start date
+    const daysSinceStart = Math.floor(
+      (requestedDate - userProgress.startDate) / (1000 * 60 * 60 * 24)
+    ) + 1;
+
+    // Calculate effective reading day (cycling through 365-day plan)
+    let effectiveReadingDay = daysSinceStart;
+    if (daysSinceStart < 1) {
+      effectiveReadingDay = 365 + (daysSinceStart % 365);
+      if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+    } else if (daysSinceStart > 365) {
+      effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
+    }
+
+    // Validate effective reading day
+    if (effectiveReadingDay < 1 || effectiveReadingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reading day calculated'
+      });
+    }
+
     // Find or create completion record for this day
     let dayCompletion = userProgress.completedDays.find(
-      completedDay => completedDay.day === readingDay
+      completedDay => completedDay.day === effectiveReadingDay
     );
 
     if (!dayCompletion) {
       // Create new completion record
       dayCompletion = {
-        day: readingDay,
+        day: effectiveReadingDay,
         oldTestamentComplete: true,
         newTestamentComplete: false,
         completedAt: new Date()
@@ -567,9 +592,9 @@ exports.markOldTestamentComplete = async (req, res, next) => {
     // Update overall completion status for the day
     const isFullyComplete = dayCompletion.oldTestamentComplete && dayCompletion.newTestamentComplete;
     
-    // Update user's current day if this is the next sequential day
-    if (readingDay === userProgress.currentDay && isFullyComplete) {
-      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    // Update user's current day only if this is the next sequential day AND it becomes fully complete
+    if (effectiveReadingDay === userProgress.currentDay && isFullyComplete) {
+      userProgress.currentDay = Math.min(effectiveReadingDay + 1, 365);
     }
 
     // Recalculate percentage complete
@@ -589,7 +614,9 @@ exports.markOldTestamentComplete = async (req, res, next) => {
       success: true,
       message: 'Old Testament reading marked as complete',
       data: {
-        day: readingDay,
+        day: parseInt(day), // Return the actual calendar day selected
+        readingDay: effectiveReadingDay, // The reading plan day
+        date: requestedDate,
         oldTestamentComplete: true,
         newTestamentComplete: dayCompletion.newTestamentComplete,
         fullyComplete: isFullyComplete,
@@ -608,8 +635,8 @@ exports.markOldTestamentComplete = async (req, res, next) => {
   }
 };
 
-// @desc    Mark New Testament reading as complete for a specific day
-// @route   PUT /api/reading/complete-new-testament/:day
+// @desc    Mark New Testament reading as complete for a specific date
+// @route   PUT /api/reading/complete-new-testament/:year/:month/:day
 // @access  Private
 exports.markNewTestamentComplete = async (req, res, next) => {
   try {
@@ -617,14 +644,16 @@ exports.markNewTestamentComplete = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const { day } = req.params;
-    const readingDay = parseInt(day);
+    const { year, month, day } = req.params;
 
-    // Validate day parameter
-    if (!readingDay || readingDay < 1 || readingDay > 365) {
+    // Validate date parameters and create date in UTC to avoid timezone issues
+    const requestedDate = new Date(Date.UTC(year, month - 1, day));
+    if (isNaN(requestedDate.getTime()) || 
+        parseInt(day) < 1 || 
+        parseInt(day) > new Date(year, month, 0).getDate()) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid day parameter. Must be between 1 and 365.'
+        message: 'Invalid date parameters'
       });
     }
 
@@ -636,15 +665,37 @@ exports.markNewTestamentComplete = async (req, res, next) => {
       });
     }
 
+    // Calculate days since start date
+    const daysSinceStart = Math.floor(
+      (requestedDate - userProgress.startDate) / (1000 * 60 * 60 * 24)
+    ) + 1;
+
+    // Calculate effective reading day (cycling through 365-day plan)
+    let effectiveReadingDay = daysSinceStart;
+    if (daysSinceStart < 1) {
+      effectiveReadingDay = 365 + (daysSinceStart % 365);
+      if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+    } else if (daysSinceStart > 365) {
+      effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
+    }
+
+    // Validate effective reading day
+    if (effectiveReadingDay < 1 || effectiveReadingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reading day calculated'
+      });
+    }
+
     // Find or create completion record for this day
     let dayCompletion = userProgress.completedDays.find(
-      completedDay => completedDay.day === readingDay
+      completedDay => completedDay.day === effectiveReadingDay
     );
 
     if (!dayCompletion) {
       // Create new completion record
       dayCompletion = {
-        day: readingDay,
+        day: effectiveReadingDay,
         oldTestamentComplete: false,
         newTestamentComplete: true,
         completedAt: new Date()
@@ -661,9 +712,9 @@ exports.markNewTestamentComplete = async (req, res, next) => {
     // Update overall completion status for the day
     const isFullyComplete = dayCompletion.oldTestamentComplete && dayCompletion.newTestamentComplete;
     
-    // Update user's current day if this is the next sequential day
-    if (readingDay === userProgress.currentDay && isFullyComplete) {
-      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    // Update user's current day only if this is the next sequential day AND it becomes fully complete
+    if (effectiveReadingDay === userProgress.currentDay && isFullyComplete) {
+      userProgress.currentDay = Math.min(effectiveReadingDay + 1, 365);
     }
 
     // Recalculate percentage complete
@@ -683,7 +734,9 @@ exports.markNewTestamentComplete = async (req, res, next) => {
       success: true,
       message: 'New Testament reading marked as complete',
       data: {
-        day: readingDay,
+        day: parseInt(day), // Return the actual calendar day selected
+        readingDay: effectiveReadingDay, // The reading plan day
+        date: requestedDate,
         oldTestamentComplete: dayCompletion.oldTestamentComplete,
         newTestamentComplete: true,
         fullyComplete: isFullyComplete,
@@ -703,8 +756,8 @@ exports.markNewTestamentComplete = async (req, res, next) => {
 };
 
 
-// @desc    Mark both Old and New Testament as complete for a specific day
-// @route   PUT /api/reading/complete-day/:day
+// @desc    Mark both Old and New Testament as complete for a specific date
+// @route   PUT /api/reading/complete-day/:year/:month/:day
 // @access  Private
 exports.markDayComplete = async (req, res, next) => {
   try {
@@ -712,14 +765,16 @@ exports.markDayComplete = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const { day } = req.params;
-    const readingDay = parseInt(day);
+    const { year, month, day } = req.params;
 
-    // Validate day parameter
-    if (!readingDay || readingDay < 1 || readingDay > 365) {
+    // Validate date parameters and create date in UTC to avoid timezone issues
+    const requestedDate = new Date(Date.UTC(year, month - 1, day));
+    if (isNaN(requestedDate.getTime()) || 
+        parseInt(day) < 1 || 
+        parseInt(day) > new Date(year, month, 0).getDate()) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid day parameter. Must be between 1 and 365.'
+        message: 'Invalid date parameters'
       });
     }
 
@@ -731,15 +786,37 @@ exports.markDayComplete = async (req, res, next) => {
       });
     }
 
+    // Calculate days since start date
+    const daysSinceStart = Math.floor(
+      (requestedDate - userProgress.startDate) / (1000 * 60 * 60 * 24)
+    ) + 1;
+
+    // Calculate effective reading day (cycling through 365-day plan)
+    let effectiveReadingDay = daysSinceStart;
+    if (daysSinceStart < 1) {
+      effectiveReadingDay = 365 + (daysSinceStart % 365);
+      if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+    } else if (daysSinceStart > 365) {
+      effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
+    }
+
+    // Validate effective reading day
+    if (effectiveReadingDay < 1 || effectiveReadingDay > 365) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reading day calculated'
+      });
+    }
+
     // Find or create completion record for this day
     let dayCompletion = userProgress.completedDays.find(
-      completedDay => completedDay.day === readingDay
+      completedDay => completedDay.day === effectiveReadingDay
     );
 
     if (!dayCompletion) {
       // Create new completion record
       dayCompletion = {
-        day: readingDay,
+        day: effectiveReadingDay,
         oldTestamentComplete: true,
         newTestamentComplete: true,
         completedAt: new Date()
@@ -754,9 +831,9 @@ exports.markDayComplete = async (req, res, next) => {
       }
     }
 
-    // Update user's current day - advance to at least the completed day + 1
-    if (readingDay >= userProgress.currentDay) {
-      userProgress.currentDay = Math.min(readingDay + 1, 365);
+    // Update user's current day only if this is the next sequential day (now fully complete by definition)
+    if (effectiveReadingDay === userProgress.currentDay) {
+      userProgress.currentDay = Math.min(effectiveReadingDay + 1, 365);
     }
 
     // Recalculate percentage complete
@@ -774,7 +851,9 @@ exports.markDayComplete = async (req, res, next) => {
       success: true,
       message: 'Day marked as fully complete',
       data: {
-        day: readingDay,
+        day: parseInt(day), // Return the actual calendar day selected
+        readingDay: effectiveReadingDay, // The reading plan day
+        date: requestedDate,
         oldTestamentComplete: true,
         newTestamentComplete: true,
         fullyComplete: true,
@@ -792,7 +871,6 @@ exports.markDayComplete = async (req, res, next) => {
     });
   }
 };
-
 
 // Helper function to update user streak
 const updateUserStreak = async (userId) => {
