@@ -966,7 +966,7 @@ exports.getStreakHistory = async (req, res, next) => {
   }
 };
 
-// @desc    Get user's reading progress (IMPROVED)
+// @desc    Get user's reading progress 
 // @route   GET /api/reading/progress
 // @access  Private
 exports.getProgress = async (req, res, next) => {
@@ -980,17 +980,24 @@ exports.getProgress = async (req, res, next) => {
       });
     }
 
-    // FIX: Add null safety for booksRead
-    const completedBooks = userProgress.booksRead?.filter(book => book.completed)?.length || 0;
+    // FIX: Calculate completed books based on fully completed days and reading plan
+    const fullyCompletedDays = userProgress.completedDays?.filter(
+      day => day.oldTestamentComplete && day.newTestamentComplete
+    )?.length || 0;
+    
+    // Estimate books completed based on reading plan structure (66 books over 365 days)
+    const estimatedBooksCompleted = Math.floor((fullyCompletedDays / 365) * 66);
+    
     const totalCompletedDays = userProgress.completedDays?.length || 0;
 
     res.status(200).json({
       success: true,
       progress: {
         currentDay: userProgress.currentDay || 1,
-        completedDays: totalCompletedDays,
+        completedDays: fullyCompletedDays, // Use fully completed days for consistency
+        totalDaysTracked: totalCompletedDays, // Total days with any progress
         percentageComplete: userProgress.percentageComplete || 0,
-        booksCompleted: completedBooks,
+        booksCompleted: estimatedBooksCompleted,
         totalBooks: 66
       }
     });
@@ -1008,7 +1015,6 @@ exports.getProgress = async (req, res, next) => {
 // @desc    Get yearly progress statistics
 // @route   GET /api/reading/yearly-progress/:year
 // @access  Private
-
 exports.getYearlyProgress = async (req, res, next) => {
   try {
     const { year } = req.params;
@@ -1039,8 +1045,15 @@ exports.getYearlyProgress = async (req, res, next) => {
     const endOfYear = new Date(currentYear, 11, 31);
     const today = new Date();
 
-    // FIX: Add null safety for completedDays
-    const completedDaysThisYear = (userProgress.completedDays || []).filter(day => {
+    // FIX: Filter for fully completed days in the specified year
+    const fullyCompletedDaysThisYear = (userProgress.completedDays || []).filter(day => {
+      if (!day.completedAt || !day.oldTestamentComplete || !day.newTestamentComplete) return false;
+      const completedDate = new Date(day.completedAt);
+      return completedDate >= startOfYear && completedDate <= endOfYear;
+    });
+
+    // Also track partially completed days for additional insight
+    const anyProgressDaysThisYear = (userProgress.completedDays || []).filter(day => {
       if (!day.completedAt) return false;
       const completedDate = new Date(day.completedAt);
       return completedDate >= startOfYear && completedDate <= endOfYear;
@@ -1053,18 +1066,24 @@ exports.getYearlyProgress = async (req, res, next) => {
     );
     
     const totalDaysInYear = ((currentYear % 4 === 0 && currentYear % 100 !== 0) || (currentYear % 400 === 0)) ? 366 : 365;
-    const yearlyPercentage = Math.round((completedDaysThisYear.length / totalDaysInYear) * 100);
+    const yearlyPercentage = Math.round((fullyCompletedDaysThisYear.length / totalDaysInYear) * 100);
+
+    // Calculate streak information for the year
+    const completedDaysCount = fullyCompletedDaysThisYear.length;
+    const targetDaysForYear = Math.min(daysPassed, totalDaysInYear);
 
     res.status(200).json({
       success: true,
       yearlyProgress: {
         year: currentYear,
-        completedDays: completedDaysThisYear.length,
+        completedDays: completedDaysCount,
+        daysWithAnyProgress: anyProgressDaysThisYear.length,
         totalDaysInYear: totalDaysInYear,
         daysPassed: Math.min(daysPassed, totalDaysInYear),
         percentageComplete: yearlyPercentage,
-        averageDaysPerMonth: Math.round((completedDaysThisYear.length / 12) * 10) / 10,
-        onTrack: completedDaysThisYear.length >= (daysPassed * 0.8)
+        averageDaysPerMonth: Math.round((completedDaysCount / 12) * 10) / 10,
+        onTrack: completedDaysCount >= (targetDaysForYear * 0.8),
+        targetDaysForPeriod: targetDaysForYear
       }
     });
   } catch (error) {
@@ -1076,7 +1095,6 @@ exports.getYearlyProgress = async (req, res, next) => {
     });
   }
 };
-
 
 
 
