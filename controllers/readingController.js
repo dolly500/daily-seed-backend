@@ -966,9 +966,6 @@ exports.getStreakHistory = async (req, res, next) => {
   }
 };
 
-// @desc    Get user's reading progress 
-// @route   GET /api/reading/progress
-// @access  Private
 exports.getProgress = async (req, res, next) => {
   try {
     const userProgress = await UserProgress.findOne({ user: req.user.id });
@@ -985,20 +982,32 @@ exports.getProgress = async (req, res, next) => {
       day => day.oldTestamentComplete && day.newTestamentComplete
     )?.length || 0;
     
-    // Estimate books completed based on reading plan structure (66 books over 365 days)
-    const estimatedBooksCompleted = Math.floor((fullyCompletedDays / 365) * 66);
-    
     const totalCompletedDays = userProgress.completedDays?.length || 0;
+    const currentDay = userProgress.currentDay || 1;
+
+    // Calculate book progress based on current day (more accurate for frontend selection)
+    // Assume roughly 5.5 days per book on average (365 days / 66 books ≈ 5.5)
+    const estimatedBooksAccessible = Math.min(Math.floor(currentDay / 5.5), 66);
+    const booksFullyCompleted = Math.floor((fullyCompletedDays / 365) * 66);
+
+    // Get list of completed days for frontend reference
+    const completedDaysList = (userProgress.completedDays || [])
+      .filter(day => day.oldTestamentComplete && day.newTestamentComplete)
+      .map(day => day.day)
+      .sort((a, b) => a - b);
 
     res.status(200).json({
       success: true,
       progress: {
-        currentDay: userProgress.currentDay || 1,
-        completedDays: fullyCompletedDays, // Use fully completed days for consistency
-        totalDaysTracked: totalCompletedDays, // Total days with any progress
+        currentDay: currentDay,
+        completedDays: fullyCompletedDays,
+        totalDaysTracked: totalCompletedDays,
         percentageComplete: userProgress.percentageComplete || 0,
-        booksCompleted: estimatedBooksCompleted,
-        totalBooks: 66
+        booksCompleted: booksFullyCompleted,
+        booksAccessible: estimatedBooksAccessible, // Books user can potentially select from
+        totalBooks: 66,
+        completedDaysList: completedDaysList, // Array of completed reading days
+        daysPerBook: Math.round((365 / 66) * 10) / 10 // ~5.5 days per book average
       }
     });
   } catch (error) {
@@ -1010,6 +1019,91 @@ exports.getProgress = async (req, res, next) => {
     });
   }
 };
+
+// @desc    Get yearly progress statistics
+// @route   GET /api/reading/yearly-progress/:year
+// @access  Private
+exports.getYearlyProgress = async (req, res, next) => {
+  try {
+    const { year } = req.params;
+    const currentYear = parseInt(year) || new Date().getFullYear();
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // FIX: Validate year parameter
+    if (currentYear < 2020 || currentYear > 2030) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid year parameter'
+      });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+
+    if (!userProgress) {
+      return res.status(404).json({
+        success: false,
+        message: 'No reading progress found'
+      });
+    }
+
+    const startOfYear = new Date(currentYear, 0, 1);
+    const endOfYear = new Date(currentYear, 11, 31);
+    const today = new Date();
+
+    // FIX: Filter for fully completed days in the specified year
+    const fullyCompletedDaysThisYear = (userProgress.completedDays || []).filter(day => {
+      if (!day.completedAt || !day.oldTestamentComplete || !day.newTestamentComplete) return false;
+      const completedDate = new Date(day.completedAt);
+      return completedDate >= startOfYear && completedDate <= endOfYear;
+    });
+
+    // Also track partially completed days for additional insight
+    const anyProgressDaysThisYear = (userProgress.completedDays || []).filter(day => {
+      if (!day.completedAt) return false;
+      const completedDate = new Date(day.completedAt);
+      return completedDate >= startOfYear && completedDate <= endOfYear;
+    });
+
+    // FIX: Better date calculation
+    const daysPassed = Math.min(
+      Math.max(1, Math.floor((today - startOfYear) / (1000 * 60 * 60 * 24)) + 1),
+      365
+    );
+    
+    const totalDaysInYear = ((currentYear % 4 === 0 && currentYear % 100 !== 0) || (currentYear % 400 === 0)) ? 366 : 365;
+    const yearlyPercentage = Math.round((fullyCompletedDaysThisYear.length / totalDaysInYear) * 100);
+
+    // Calculate streak information for the year
+    const completedDaysCount = fullyCompletedDaysThisYear.length;
+    const targetDaysForYear = Math.min(daysPassed, totalDaysInYear);
+
+    res.status(200).json({
+      success: true,
+      yearlyProgress: {
+        year: currentYear,
+        completedDays: completedDaysCount,
+        daysWithAnyProgress: anyProgressDaysThisYear.length,
+        totalDaysInYear: totalDaysInYear,
+        daysPassed: Math.min(daysPassed, totalDaysInYear),
+        percentageComplete: yearlyPercentage,
+        averageDaysPerMonth: Math.round((completedDaysCount / 12) * 10) / 10,
+        onTrack: completedDaysCount >= (targetDaysForYear * 0.8),
+        targetDaysForPeriod: targetDaysForYear
+      }
+    });
+  } catch (error) {
+    console.error('Error getting yearly progress:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
 
 
 // @desc    Get yearly progress statistics
