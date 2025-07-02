@@ -607,7 +607,7 @@ exports.markOldTestamentComplete = async (req, res, next) => {
 
     // Update streak if day is fully complete
     if (isFullyComplete) {
-      await updateUserStreak(req.user.id);
+      await updateUserStreak(req.user.id, requestedDate);
     }
 
     res.status(200).json({
@@ -727,7 +727,7 @@ exports.markNewTestamentComplete = async (req, res, next) => {
 
     // Update streak if day is fully complete
     if (isFullyComplete) {
-      await updateUserStreak(req.user.id);
+      await updateUserStreak(req.user.id, requestedDate);
     }
 
     res.status(200).json({
@@ -845,7 +845,7 @@ exports.markDayComplete = async (req, res, next) => {
     await userProgress.save();
 
     // Update streak since day is fully complete
-    await updateUserStreak(req.user.id);
+    await updateUserStreak(req.user.id, requestedDate);
 
     res.status(200).json({
       success: true,
@@ -873,48 +873,45 @@ exports.markDayComplete = async (req, res, next) => {
 };
 
 // Helper function to update user streak
-const updateUserStreak = async (userId) => {
+const updateUserStreak = async (userId, dateCompleted = new Date()) => {
   try {
     let streak = await Streak.findOne({ user: userId });
-    
+
     if (!streak) {
-      streak = new Streak({ user: userId });
-    }
-
-    const today = new Date();
-    const lastCheckIn = streak.lastCheckIn ? new Date(streak.lastCheckIn) : null;
-    
-    // Check if this is a consecutive day
-    if (lastCheckIn) {
-      const daysDifference = Math.floor((today - lastCheckIn) / (1000 * 60 * 60 * 24));
-      
-      if (daysDifference === 1) {
-        // Consecutive day - increment streak
-        streak.currentStreak += 1;
-      } else if (daysDifference > 1) {
-        // Missed days - reset streak
-        streak.currentStreak = 1;
-      }
-      // If daysDifference === 0, same day - don't increment
+      streak = new Streak({ user: userId, currentStreak: 1, longestStreak: 1, lastCheckIn: dateCompleted });
     } else {
-      // First check-in
-      streak.currentStreak = 1;
+      // Only increment if this day hasn’t already been recorded
+      const lastDate = new Date(streak.lastCheckIn);
+      lastDate.setHours(0, 0, 0, 0);
+      const today = new Date(dateCompleted);
+      today.setHours(0, 0, 0, 0);
+
+      if (lastDate.getTime() !== today.getTime()) {
+        streak.currentStreak += 1;
+
+        if (streak.currentStreak > streak.longestStreak) {
+          streak.longestStreak = streak.currentStreak;
+        }
+
+        streak.lastCheckIn = today;
+
+        // Optionally track in history
+        const alreadyInHistory = streak.streakHistory.find(entry => new Date(entry.date).getTime() === today.getTime());
+        if (!alreadyInHistory) {
+          streak.streakHistory.push({ date: today, streakCount: streak.currentStreak });
+        }
+      }
     }
 
-    // Update longest streak if current is higher
-    if (streak.currentStreak > streak.longestStreak) {
-      streak.longestStreak = streak.currentStreak;
-    }
-
-    streak.lastCheckIn = today;
     await streak.save();
-
     return streak;
   } catch (error) {
     console.error('Error updating streak:', error);
     throw error;
   }
 };
+
+
 
 // @desc    Get user streak information
 // @route   GET /api/reading/streak
