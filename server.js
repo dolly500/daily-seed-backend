@@ -5,6 +5,7 @@ const passport = require('passport');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
+const NotificationScheduler = require('./services/notificationScheduler');
 
 // Load environment variables
 dotenv.config();
@@ -56,6 +57,7 @@ const PORT = process.env.PORT || 5000;
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+   NotificationScheduler.startScheduledJobs();
 });
 
 module.exports = app; 

@@ -28,7 +28,7 @@ async sendToUser(userId, notification) {
       }
     };
 
-    const response = await admin.messaging().sendMulticast({
+    const response = await admin.messaging().sendEachForMulticast({
       tokens,
       ...message
     });

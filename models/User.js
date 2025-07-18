@@ -53,8 +53,10 @@ const UserSchema = new mongoose.Schema(
     passwordResetExpires: {
       type: Date,
       select: false 
-    },
-
+    },lastNotificationSent: {
+  type: Date,
+  default: null
+},
     // Push notification fields
     fcmTokens: [
       {
@@ -74,11 +76,11 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     }
-
   },
   {
     timestamps: true
-  }
+  },
+  
 );
 
 // Encrypt password using bcrypt
