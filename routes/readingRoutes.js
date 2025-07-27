@@ -20,11 +20,14 @@ const {
   getNotes,
   updateNote,
   deleteNote,
-
-  // hightlights
+  // Highlights routes
   addHighlight,
   getHighlights,
   deleteHighlight,
+  // New routes
+  getProgressSummary,
+  getAchievements,
+  getLeaderboard,
 } = require('../controllers/readingController');
 
 // Middleware
@@ -39,29 +42,26 @@ router.get('/bible-versions', auth, getBibleVersions);
 router.put('/complete-old-testament/:year/:month/:day', auth, markOldTestamentComplete);
 router.put('/complete-new-testament/:year/:month/:day', auth, markNewTestamentComplete);
 router.put('/complete-day/:year/:month/:day', auth, markDayComplete);
-router.get('/calendar/:year/:month', auth, getCalendarData)
+router.get('/calendar/:year/:month', auth, getCalendarData);
 
-// no of books out of 66 books
+// Progress-related routes
 router.get('/progress', auth, getProgress);
+router.get('/progress-summary', auth, getProgressSummary);
+router.get('/achievements', auth, getAchievements);
+router.get('/leaderboard', auth, getLeaderboard);
 
-
-
-
-// yearly progress routes
+// Yearly progress routes
 router.get('/yearly-progress/:year?', auth, getYearlyProgress);
-
 
 // Notes routes
 router.post('/notes', auth, addNote);
-router.get('/notes/:id', auth, getNotes);
-router.get('/notes', auth, getNotes);
+router.get('/notes/:id?', auth, getNotes); 
 router.put('/notes/:id', auth, updateNote);
 router.delete('/notes/:id', auth, deleteNote);
 
-
-// highlight routes
+// Highlight routes
 router.post('/highlights', auth, addHighlight);
 router.get('/highlights', auth, getHighlights);
-router.delete('/highlights/:id', auth, deleteHighlight)
+router.delete('/highlights/:id', auth, deleteHighlight);
 
 module.exports = router;

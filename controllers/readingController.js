@@ -759,6 +759,7 @@ exports.markNewTestamentComplete = async (req, res, next) => {
 // @desc    Mark both Old and New Testament as complete for a specific date
 // @route   PUT /api/reading/complete-day/:year/:month/:day
 // @access  Private
+
 exports.markDayComplete = async (req, res, next) => {
   try {
     if (!req.user || !req.user.id) {
@@ -786,21 +787,17 @@ exports.markDayComplete = async (req, res, next) => {
       });
     }
 
-    // Calculate days since start date
+    // Calculate effective reading day
     const daysSinceStart = Math.floor(
       (requestedDate - userProgress.startDate) / (1000 * 60 * 60 * 24)
     ) + 1;
-
-    // Calculate effective reading day (cycling through 365-day plan)
     let effectiveReadingDay = daysSinceStart;
     if (daysSinceStart < 1) {
-      effectiveReadingDay = 365 + (daysSinceStart % 365);
-      if (effectiveReadingDay <= 0) effectiveReadingDay = 365;
+      effectiveReadingDay = 365 + (daysSinceStart % 365) || 365;
     } else if (daysSinceStart > 365) {
       effectiveReadingDay = ((daysSinceStart - 1) % 365) + 1;
     }
 
-    // Validate effective reading day
     if (effectiveReadingDay < 1 || effectiveReadingDay > 365) {
       return res.status(400).json({
         success: false,
@@ -808,13 +805,12 @@ exports.markDayComplete = async (req, res, next) => {
       });
     }
 
-    // Find or create completion record for this day
+    // Find or create completion record
     let dayCompletion = userProgress.completedDays.find(
       completedDay => completedDay.day === effectiveReadingDay
     );
 
     if (!dayCompletion) {
-      // Create new completion record
       dayCompletion = {
         day: effectiveReadingDay,
         oldTestamentComplete: true,
@@ -823,7 +819,6 @@ exports.markDayComplete = async (req, res, next) => {
       };
       userProgress.completedDays.push(dayCompletion);
     } else {
-      // Update existing record - preserve original completedAt if it exists
       dayCompletion.oldTestamentComplete = true;
       dayCompletion.newTestamentComplete = true;
       if (!dayCompletion.completedAt) {
@@ -831,12 +826,33 @@ exports.markDayComplete = async (req, res, next) => {
       }
     }
 
-    // Update user's current day only if this is the next sequential day (now fully complete by definition)
+    // Update booksRead with chapters
+    const dayReading = userProgress.customReadings.find(r => r.day === effectiveReadingDay);
+    if (dayReading) {
+      let otBook = userProgress.booksRead.find(b => b.testament === 'Old Testament' && b.book === dayReading.oldTestament.book);
+      let ntBook = userProgress.booksRead.find(b => b.testament === 'New Testament' && b.book === dayReading.newTestament.book);
+
+      if (!otBook) {
+        otBook = { testament: 'Old Testament', book: dayReading.oldTestament.book, completed: false, chaptersRead: [] };
+        userProgress.booksRead.push(otBook);
+      }
+      if (!ntBook) {
+        ntBook = { testament: 'New Testament', book: dayReading.newTestament.book, completed: false, chaptersRead: [] };
+        userProgress.booksRead.push(ntBook);
+      }
+
+      for (let ch = dayReading.oldTestament.startChapter; ch <= dayReading.oldTestament.endChapter; ch++) {
+        if (!otBook.chaptersRead.includes(ch)) otBook.chaptersRead.push(ch);
+      }
+      for (let ch = dayReading.newTestament.startChapter; ch <= dayReading.newTestament.endChapter; ch++) {
+        if (!ntBook.chaptersRead.includes(ch)) ntBook.chaptersRead.push(ch);
+      }
+    }
+
+    // Update current day and percentage
     if (effectiveReadingDay === userProgress.currentDay) {
       userProgress.currentDay = Math.min(effectiveReadingDay + 1, 365);
     }
-
-    // Recalculate percentage complete
     const fullyCompletedDays = userProgress.completedDays.filter(
       day => day.oldTestamentComplete && day.newTestamentComplete
     ).length;
@@ -844,15 +860,15 @@ exports.markDayComplete = async (req, res, next) => {
 
     await userProgress.save();
 
-    // Update streak since day is fully complete
+    // Update streak
     await updateUserStreak(req.user.id, requestedDate);
 
     res.status(200).json({
       success: true,
       message: 'Day marked as fully complete',
       data: {
-        day: parseInt(day), // Return the actual calendar day selected
-        readingDay: effectiveReadingDay, // The reading plan day
+        day: parseInt(day),
+        readingDay: effectiveReadingDay,
         date: requestedDate,
         oldTestamentComplete: true,
         newTestamentComplete: true,
@@ -861,7 +877,6 @@ exports.markDayComplete = async (req, res, next) => {
         percentageComplete: userProgress.percentageComplete
       }
     });
-
   } catch (error) {
     console.error('Error marking day complete:', error);
     return res.status(500).json({
@@ -1506,5 +1521,134 @@ exports.deleteHighlight = async (req, res) => {
       message: 'Internal server error',
       error: error.message 
     });
+  }
+};
+
+
+
+// Reading and Progress
+exports.getProgressSummary = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    if (!userProgress) {
+      return res.status(404).json({ success: false, message: 'No reading progress found' });
+    }
+
+    const streak = await Streak.findOne({ user: req.user.id }) || { currentStreak: 0, longestStreak: 0 };
+
+    // Calculate testament-specific progress
+    const otProgress = userProgress.booksRead.find(b => b.testament === 'Old Testament') || { chaptersRead: [] };
+    const ntProgress = userProgress.booksRead.find(b => b.testament === 'New Testament') || { chaptersRead: [] };
+    const totalOtChapters = 929; // Total chapters in Old Testament
+    const totalNtChapters = 260; // Total chapters in New Testament
+
+    res.status(200).json({
+      success: true,
+      progress: {
+        currentStreak: streak.currentStreak,
+        longestStreak: streak.longestStreak,
+        readingActivity: {
+          oldTestament: {
+            percentage: Math.round((otProgress.chaptersRead.length / totalOtChapters) * 100) || 0,
+            chaptersRead: otProgress.chaptersRead.length || 0
+          },
+          newTestament: {
+            percentage: Math.round((ntProgress.chaptersRead.length / totalNtChapters) * 100) || 0,
+            chaptersRead: ntProgress.chaptersRead.length || 0
+          }
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting progress summary:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+exports.getAchievements = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const userProgress = await UserProgress.findOne({ user: req.user.id });
+    const streak = await Streak.findOne({ user: req.user.id }) || { currentStreak: 0 };
+    if (!userProgress) {
+      return res.status(404).json({ success: false, message: 'No reading progress found' });
+    }
+
+    const achievements = [
+      { id: '7-day-streak', name: '7 Days Streak', criteria: streak.currentStreak >= 7 },
+      { id: '100-chapters', name: '100 Chapters', criteria: userProgress.booksRead.some(b => b.chaptersRead.length >= 100) },
+      { id: 'note-taker', name: 'Note Taker', criteria: userProgress.notes.length > 0 },
+      { id: '100-highlights', name: '100 Highlights', criteria: (userProgress.highlights || []).length >= 100, locked: true },
+      { id: 'consistent-reader', name: 'Consistent Reader', criteria: false, locked: true },
+      { id: 'perfect-month', name: 'Perfect Month', criteria: false, locked: true },
+      { id: 'quarterly-commitment', name: 'Quarterly Commitment', criteria: false, locked: true },
+      { id: 'half-year-devotion', name: 'Half-Year Devotion', criteria: false, locked: true },
+      { id: 'bible-daily-hero', name: 'Bible Daily Hero', criteria: false, locked: true }
+    ];
+
+    // Determine achievement dates dynamically
+    achievements.forEach(achievement => {
+      if (achievement.criteria && !achievement.locked) {
+        if (achievement.id === '7-day-streak') {
+          const streakHistory = streak.streakHistory || [];
+          const achievedDate = streakHistory.find(entry => entry.streakCount >= 7)?.date || streak.lastCheckIn;
+          achievement.date = achievedDate ? new Date(achievedDate).toISOString().split('T')[0] : null;
+        } else if (achievement.id === '100-chapters') {
+          const chapterProgress = userProgress.booksRead.find(b => b.chaptersRead.length >= 100);
+          achievement.date = chapterProgress?.chaptersRead[99]?.completedAt || userProgress.completedDays[0]?.completedAt || null;
+          if (achievement.date) achievement.date = new Date(achievement.date).toISOString().split('T')[0];
+        } else if (achievement.id === 'note-taker') {
+          achievement.date = userProgress.notes[0]?.createdAt ? new Date(userProgress.notes[0].createdAt).toISOString().split('T')[0] : null;
+        } else if (achievement.id === '100-highlights') {
+          achievement.date = (userProgress.highlights || [])[99]?.createdAt ? new Date((userProgress.highlights || [])[99].createdAt).toISOString().split('T')[0] : null;
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      achievements: {
+        achieved: achievements.filter(a => a.criteria && !a.locked),
+        locked: achievements.filter(a => !a.criteria || a.locked)
+      }
+    });
+  } catch (error) {
+    console.error('Error getting achievements:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+
+exports.getLeaderboard = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Fetch leaderboard data sorted by currentStreak in descending order, limited to top 10
+    const leaderboard = await Streak.find().sort({ currentStreak: -1 }).limit(10).populate('user', 'username');
+
+    const userStreak = await Streak.findOne({ user: req.user.id });
+    const userRank = leaderboard.findIndex(s => s.user._id.toString() === req.user.id.toString()) + 1 || -1;
+
+    res.status(200).json({
+      success: true,
+      leaderboard: leaderboard.map((s, index) => ({
+        rank: index + 1,
+        username: s.user.username || `User${s.user._id}`,
+        days: s.currentStreak
+      })),
+      userRank: userRank
+    });
+  } catch (error) {
+    console.error('Error getting leaderboard:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 };
