@@ -267,14 +267,28 @@ exports.updateProfile = async (req, res, next) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { username, preferredBibleVersion } = req.body;
+    const { username, email, preferredBibleVersion, avatar } = req.body;
 
     // Find user
     const user = await User.findById(req.user.id);
 
-    // Update fields
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check if the new email is already in use by another user
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        return res.status(400).json({ success: false, message: 'Email already in use' });
+      }
+      user.email = email;
+    }
+
+    // Update other fields
     if (username) user.username = username;
     if (preferredBibleVersion) user.preferredBibleVersion = preferredBibleVersion;
+    if (avatar) user.avatar = avatar; // Assuming avatar is a URL or base64 string
 
     // Save user
     await user.save();
@@ -294,6 +308,7 @@ exports.updateProfile = async (req, res, next) => {
     next(error);
   }
 };
+
 
 // @desc    Update user password
 // @route   PUT /api/users/password
