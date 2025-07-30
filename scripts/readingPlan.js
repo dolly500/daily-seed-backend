@@ -1,4 +1,5 @@
 const READING_PLAN_DATA = [
+    //JANUARY
     { day: 1, oldTestament: { book: 'Genesis', startChapter: 1, endChapter: 2 }, newTestament: { book: 'Matthew', startChapter: 1, endChapter: 1 } },
     { day: 2, oldTestament: { book: 'Genesis', startChapter: 3, endChapter: 5 }, newTestament: { book: 'Matthew', startChapter: 2, endChapter: 2 } },
     { day: 3, oldTestament: { book: 'Genesis', startChapter: 6, endChapter: 8 }, newTestament: { book: 'Matthew', startChapter: 3, endChapter: 3 } },
