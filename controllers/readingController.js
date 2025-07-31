@@ -4,8 +4,7 @@ const UserProgress = require('../models/UserProgress');
 const Streak = require('../models/Streak');
 const READING_PLAN_DATA = require('../scripts/readingPlan');
 const axios = require('axios');
-const NodeCache = require('node-cache'); 
-
+const NodeCache = require('node-cache');
 
 // @desc    Initialize user reading progress
 // @route   POST /api/reading/init
@@ -28,7 +27,7 @@ exports.initUserProgress = async (req, res, next) => {
         { testament: 'Old Testament', book: 'Genesis', completed: false, chaptersRead: [] },
         { testament: 'New Testament', book: 'Matthew', completed: false, chaptersRead: [] }
       ],
-      customReadings: READING_PLAN_DATA, // Directly use READING_PLAN_DATA
+      customReadings: READING_PLAN_DATA,
       completedDays: [],
       totalBooksCompleted: 0,
       percentageComplete: 0,
@@ -75,7 +74,15 @@ exports.getReadingByDay = async (req, res, next) => {
     }
 
     const user = await User.findById(req.user.id).populate('preferredBibleVersion');
-    const bibleVersion = user.preferredBibleVersion || 'KJV';
+    // List of supported Bible versions from getBibleVersions
+    const supportedVersions = ['kjv', 'web', 'net', 'nasb', 'niv', 'esv', 'nlt', 'msg'];
+    let bibleVersion = user.preferredBibleVersion || 'kjv';
+    
+    // Validate the preferred version
+    if (!supportedVersions.includes(bibleVersion.toLowerCase())) {
+      bibleVersion = 'kjv'; // Fallback to KJV if invalid version
+      console.warn(`Invalid Bible version ${user.preferredBibleVersion} for user ${req.user.id}, falling back to KJV`);
+    }
 
     const userProgress = await UserProgress.findOne({ user: req.user.id });
     if (!userProgress) {
@@ -90,22 +97,20 @@ exports.getReadingByDay = async (req, res, next) => {
     const parsedMonth = parseInt(month);
     const parsedDay = parseInt(day);
 
-    // Define month-to-day mappings based on READING_PLAN_DATA
-   const monthRanges = [
-  { month: 1, startDay: 1, endDay: 31 },      // Jan
-  { month: 2, startDay: 32, endDay: 59 },     // Feb (28 days)
-  { month: 3, startDay: 60, endDay: 90 },     // Mar
-  { month: 4, startDay: 91, endDay: 120 },    // Apr
-  { month: 5, startDay: 121, endDay: 151 },   // May
-  { month: 6, startDay: 152, endDay: 181 },   // Jun
-  { month: 7, startDay: 182, endDay: 212 },   // Jul
-  { month: 8, startDay: 213, endDay: 243 },   // Aug
-  { month: 9, startDay: 244, endDay: 273 },   // Sep
-  { month: 10, startDay: 274, endDay: 304 },  // Oct
-  { month: 11, startDay: 305, endDay: 334 },  // Nov
-  { month: 12, startDay: 335, endDay: 365 }   // Dec
-];
-
+    const monthRanges = [
+      { month: 1, startDay: 1, endDay: 31 },
+      { month: 2, startDay: 32, endDay: 59 },
+      { month: 3, startDay: 60, endDay: 90 },
+      { month: 4, startDay: 91, endDay: 120 },
+      { month: 5, startDay: 121, endDay: 151 },
+      { month: 6, startDay: 152, endDay: 181 },
+      { month: 7, startDay: 182, endDay: 212 },
+      { month: 8, startDay: 213, endDay: 243 },
+      { month: 9, startDay: 244, endDay: 273 },
+      { month: 10, startDay: 274, endDay: 304 },
+      { month: 11, startDay: 305, endDay: 334 },
+      { month: 12, startDay: 335, endDay: 365 }
+    ];
 
     const monthRange = monthRanges.find(range => range.month === parsedMonth);
     if (!monthRange) {
@@ -115,7 +120,6 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    // Calculate reading day: startDay + (day - 1)
     readingDay = monthRange.startDay + (parsedDay - 1);
     if (readingDay > monthRange.endDay) {
       return res.status(400).json({
@@ -124,7 +128,6 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    // Find the reading for the calculated day
     const dayReading = READING_PLAN_DATA.find(r => r.day === readingDay);
     if (!dayReading) {
       return res.status(404).json({
@@ -133,12 +136,11 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    // Check if this day is completed
     const isCompleted = userProgress.completedDays.some(
       completedDay => completedDay.day === readingDay
     );
 
-    // Fetch content from Bible API
+    // Fetch content from Bible API with the selected version
     const [otContent, ntContent] = await Promise.all([
       fetchBibleContent(
         dayReading.oldTestament.book,
@@ -191,7 +193,6 @@ exports.getReadingByDay = async (req, res, next) => {
   }
 };
 
-
 // @desc    Get reading progress for a specific month (calendar view)
 // @route   GET /api/reading/calendar/:year/:month
 // @access  Private
@@ -203,7 +204,6 @@ exports.getCalendarData = async (req, res, next) => {
 
     const { year, month } = req.params;
 
-    // Validate year and month parameters
     const parsedYear = parseInt(year);
     const parsedMonth = parseInt(month);
     if (
@@ -232,21 +232,20 @@ exports.getCalendarData = async (req, res, next) => {
       });
     }
 
-    // Define month-to-day mappings
-     const monthRanges = [
-  { month: 1, startDay: 1, endDay: 31 },      // Jan
-  { month: 2, startDay: 32, endDay: 59 },     // Feb (28 days)
-  { month: 3, startDay: 60, endDay: 90 },     // Mar
-  { month: 4, startDay: 91, endDay: 120 },    // Apr
-  { month: 5, startDay: 121, endDay: 151 },   // May
-  { month: 6, startDay: 152, endDay: 181 },   // Jun
-  { month: 7, startDay: 182, endDay: 212 },   // Jul
-  { month: 8, startDay: 213, endDay: 243 },   // Aug
-  { month: 9, startDay: 244, endDay: 273 },   // Sep
-  { month: 10, startDay: 274, endDay: 304 },  // Oct
-  { month: 11, startDay: 305, endDay: 334 },  // Nov
-  { month: 12, startDay: 335, endDay: 365 }   // Dec
-];
+    const monthRanges = [
+      { month: 1, startDay: 1, endDay: 31 },
+      { month: 2, startDay: 32, endDay: 59 },
+      { month: 3, startDay: 60, endDay: 90 },
+      { month: 4, startDay: 91, endDay: 120 },
+      { month: 5, startDay: 121, endDay: 151 },
+      { month: 6, startDay: 152, endDay: 181 },
+      { month: 7, startDay: 182, endDay: 212 },
+      { month: 8, startDay: 213, endDay: 243 },
+      { month: 9, startDay: 244, endDay: 273 },
+      { month: 10, startDay: 274, endDay: 304 },
+      { month: 11, startDay: 305, endDay: 334 },
+      { month: 12, startDay: 335, endDay: 365 }
+    ];
 
     const monthRange = monthRanges.find(range => range.month === parsedMonth);
     if (!monthRange) {
@@ -327,40 +326,31 @@ exports.getCalendarData = async (req, res, next) => {
   }
 };
 
-
-
-
 // Helper function to generate a full year of Bible readings
 function generateYearlyReadings() {
   if (!READING_PLAN_DATA || !Array.isArray(READING_PLAN_DATA) || READING_PLAN_DATA.length === 0) {
     throw new Error('Invalid or empty reading plan data');
   }
   
-  // Transform and validate the data
   return READING_PLAN_DATA.map((reading, index) => {
-    // Validate required fields
     if (!reading.day || !reading.oldTestament || !reading.newTestament) {
       throw new Error(`Invalid reading structure at index ${index}`);
     }
     
-    // Ensure all required fields exist
     const transformedReading = {
       day: reading.day,
       oldTestament: {
         book: reading.oldTestament.book,
         startChapter: reading.oldTestament.startChapter,
-        // If endChapter is missing, use startChapter
         endChapter: reading.oldTestament.endChapter || reading.oldTestament.startChapter
       },
       newTestament: {
         book: reading.newTestament.book,
         startChapter: reading.newTestament.startChapter,
-        // If endChapter is missing, use startChapter  
         endChapter: reading.newTestament.endChapter || reading.newTestament.startChapter
       }
     };
     
-    // Preserve verse information if it exists
     if (reading.oldTestament.startVerse) {
       transformedReading.oldTestament.startVerse = reading.oldTestament.startVerse;
     }
@@ -385,15 +375,26 @@ function calculateDateFromDay(startDate, day) {
   return resultDate;
 }
 
-
+// Helper function to fetch Bible content from Bible API
 // Helper function to fetch Bible content from Bible API
 const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv', maxRetries = 3) => {
+  // Validate inputs
+  if (!book || !startChapter || isNaN(startChapter)) {
+    return {
+      verses: [],
+      reference: `${book || 'Unknown'} ${startChapter || ''}`,
+      translation: version.toUpperCase(),
+      error: 'Invalid book or chapter parameters'
+    };
+  }
+
+  // Define chapterRange before try block
+  const chapterRange = endChapter && endChapter !== startChapter && !isNaN(endChapter)
+    ? `${startChapter}-${endChapter}`
+    : startChapter.toString();
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const chapterRange = endChapter && endChapter !== startChapter 
-        ? `${startChapter}-${endChapter}` 
-        : startChapter.toString();
-      
       const reference = `${book}+${chapterRange}`;
       
       const response = await axios.get(`https://bible-api.com/${reference}`, {
@@ -410,30 +411,32 @@ const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv'
             text: verse.text.trim()
           })),
           reference: response.data.reference,
-          translation: response.data.translation_name
+          translation: response.data.translation_name || version.toUpperCase()
         };
       }
 
-      return { verses: [], reference: '', translation: '' };
+      return {
+        verses: [],
+        reference: `${book} ${chapterRange}`,
+        translation: version.toUpperCase(),
+        error: 'No verses returned from API'
+      };
     } catch (error) {
-      console.error(`Attempt ${attempt} failed for ${book} ${startChapter}-${endChapter}:`, error.message);
+      console.error(`Attempt ${attempt} failed for ${book} ${chapterRange} (${version}):`, error.message);
       
-      // If last attempt, return error response
       if (attempt === maxRetries) {
-        return { 
-          verses: [], 
-          reference: `${book} ${startChapter}${endChapter && endChapter !== startChapter ? `-${endChapter}` : ''}`,
+        return {
+          verses: [],
+          reference: `${book} ${chapterRange}`,
           translation: version.toUpperCase(),
-          error: `Failed after ${maxRetries} attempts: ${error.message}` 
+          error: `Failed after ${maxRetries} attempts: ${error.message}`
         };
       }
       
-      // Wait before retry (exponential backoff)
       await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
   }
 };
-
 
 // @desc    Get all available Bible versions
 // @route   GET /api/reading/bible-versions
@@ -444,7 +447,6 @@ exports.getBibleVersions = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    // Common Bible versions with their API codes
     const bibleVersions = [
       {
         id: 'kjv',
@@ -512,7 +514,6 @@ exports.getBibleVersions = async (req, res, next) => {
       }
     ];
 
-    // Get user's current preferred version
     const user = await User.findById(req.user.id);
     const currentVersion = user.preferredBibleVersion || 'kjv';
 
@@ -534,7 +535,6 @@ exports.getBibleVersions = async (req, res, next) => {
     });
   }
 };
-
 
 
 // @desc    Mark Old Testament reading as complete for a specific date

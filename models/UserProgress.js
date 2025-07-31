@@ -22,14 +22,14 @@ const UserProgressSchema = new mongoose.Schema({
       oldTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number, required: true },
+        endChapter: { type: Number }, // Made optional - same as newTestament
         startVerse: { type: Number }, // Optional
         endVerse: { type: Number }    // Optional
       },
       newTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number }, // Make optional since verses might span partial chapters
+        endChapter: { type: Number }, // Optional since verses might span partial chapters
         startVerse: { type: Number }, // Optional
         endVerse: { type: Number }    // Optional
       }
