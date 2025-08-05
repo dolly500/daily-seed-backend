@@ -264,7 +264,10 @@ exports.updateProfile = async (req, res, next) => {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
     }
 
     const { username, email, preferredBibleVersion, avatar } = req.body;
@@ -273,28 +276,47 @@ exports.updateProfile = async (req, res, next) => {
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
-    // Check if the new email is already in use by another user
-    if (email && email !== user.email) {
-      const emailExists = await User.findOne({ email });
+    // Check if the new email is provided and different from current email
+    if (email && email.toLowerCase() !== user.email.toLowerCase()) {
+      const emailExists = await User.findOne({ 
+        email: email.toLowerCase(),
+        _id: { $ne: user._id } // Exclude current user from search
+      });
+      
       if (emailExists) {
-        return res.status(400).json({ success: false, message: 'Email already in use' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Email already in use' 
+        });
       }
-      user.email = email;
+      user.email = email.toLowerCase();
     }
 
-    // Update other fields
-    if (username) user.username = username;
-    if (preferredBibleVersion) user.preferredBibleVersion = preferredBibleVersion;
-    if (avatar) user.avatar = avatar; // Assuming avatar is a URL or base64 string
+    // Update fields only if they are provided in the request
+    if (username !== undefined) {
+      user.username = username;
+    }
+    
+    if (preferredBibleVersion !== undefined) {
+      user.preferredBibleVersion = preferredBibleVersion;
+    }
+    
+    if (avatar !== undefined) {
+      user.avatar = avatar;
+    }
 
     // Save user
     await user.save();
 
     res.status(200).json({
       success: true,
+      message: 'Profile updated successfully',
       user: {
         id: user._id,
         username: user.username,
@@ -304,7 +326,7 @@ exports.updateProfile = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error('Update profile error:', error);
     next(error);
   }
 };
