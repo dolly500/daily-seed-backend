@@ -1640,11 +1640,36 @@ exports.getProgressSummary = async (req, res, next) => {
 
     const streak = await Streak.findOne({ user: req.user.id }) || { currentStreak: 0, longestStreak: 0 };
 
-    // Calculate testament-specific progress
     const otProgress = userProgress.booksRead.find(b => b.testament === 'Old Testament') || { chaptersRead: [] };
     const ntProgress = userProgress.booksRead.find(b => b.testament === 'New Testament') || { chaptersRead: [] };
-    const totalOtChapters = 929; // Total chapters in Old Testament
-    const totalNtChapters = 260; // Total chapters in New Testament
+
+    const totalOtChapters = 929;
+    const totalNtChapters = 260;
+
+    // Initial calculation from chapters read
+    let otPercentage = (otProgress.chaptersRead.length / totalOtChapters) * 100;
+    let ntPercentage = (ntProgress.chaptersRead.length / totalNtChapters) * 100;
+
+    // If stored percentages exist, use them as the base
+    if (userProgress.otPercentage != null) otPercentage = userProgress.otPercentage;
+    if (userProgress.ntPercentage != null) ntPercentage = userProgress.ntPercentage;
+
+    // Apply daily boost if a new day has passed
+    const lastBoostDate = userProgress.lastBoostDate || userProgress.createdAt || new Date();
+    const today = new Date();
+    const daysPassed = Math.floor((today - new Date(lastBoostDate)) / (1000 * 60 * 60 * 24));
+
+    if (daysPassed > 0) {
+      const boostAmount = daysPassed * 0.5; // 0.5% per day
+      otPercentage = Math.min(otPercentage + boostAmount, 100);
+      ntPercentage = Math.min(ntPercentage + boostAmount, 100);
+
+      // Save updated percentages & last boost date
+      userProgress.otPercentage = otPercentage;
+      userProgress.ntPercentage = ntPercentage;
+      userProgress.lastBoostDate = today;
+      await userProgress.save();
+    }
 
     res.status(200).json({
       success: true,
@@ -1653,11 +1678,11 @@ exports.getProgressSummary = async (req, res, next) => {
         longestStreak: streak.longestStreak,
         readingActivity: {
           oldTestament: {
-            percentage: Math.round((otProgress.chaptersRead.length / totalOtChapters) * 100) || 0,
+            percentage: Math.round(otPercentage) || 0,
             chaptersRead: otProgress.chaptersRead.length || 0
           },
           newTestament: {
-            percentage: Math.round((ntProgress.chaptersRead.length / totalNtChapters) * 100) || 0,
+            percentage: Math.round(ntPercentage) || 0,
             chaptersRead: ntProgress.chaptersRead.length || 0
           }
         }
@@ -1668,6 +1693,8 @@ exports.getProgressSummary = async (req, res, next) => {
     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 };
+
+
 
 exports.getAchievements = async (req, res, next) => {
   try {

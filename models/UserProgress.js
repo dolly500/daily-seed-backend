@@ -22,16 +22,16 @@ const UserProgressSchema = new mongoose.Schema({
       oldTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number }, // Made optional - same as newTestament
-        startVerse: { type: Number }, // Optional
-        endVerse: { type: Number }    // Optional
+        endChapter: { type: Number },
+        startVerse: { type: Number },
+        endVerse: { type: Number }
       },
       newTestament: {
         book: { type: String, required: true },
         startChapter: { type: Number, required: true },
-        endChapter: { type: Number }, // Optional since verses might span partial chapters
-        startVerse: { type: Number }, // Optional
-        endVerse: { type: Number }    // Optional
+        endChapter: { type: Number },
+        startVerse: { type: Number },
+        endVerse: { type: Number }
       }
     }
   ],
@@ -66,72 +66,37 @@ const UserProgressSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+
+  /** New fields for daily boost **/
+  otPercentage: { type: Number, default: 0 }, // Old Testament percentage
+  ntPercentage: { type: Number, default: 0 }, // New Testament percentage
+  lastBoostDate: { type: Date }, // Last time we applied the boost
+
   // Notes field for storing user's notes on daily readings
   notes: [
     {
-      verse: {
-        type: String,
-        trim: true
-      },
-      note: {
-        type: String,
-        required: true,
-        trim: true
-      },
-      createdAt: {
-        type: Date,
-        default: Date.now
-      },
-      updatedAt: {
-        type: Date,
-        default: Date.now
-      }
+      verse: { type: String, trim: true },
+      note: { type: String, required: true, trim: true },
+      createdAt: { type: Date, default: Date.now },
+      updatedAt: { type: Date, default: Date.now }
     }
   ],
   // Highlights field for storing user's verse highlights
   highlights: [
     {
-      verse: {
-        type: String,
-        required: true,
-        trim: true
-      },
-      verseText: {
-        type: String,
-        required: true,
-        trim: true
-      },
-      book: {
-        type: String,
-        required: true,
-        trim: true
-      },
-      chapter: {
-        type: Number,
-        required: true
-      },
+      verse: { type: String, required: true, trim: true },
+      verseText: { type: String, required: true, trim: true },
+      book: { type: String, required: true, trim: true },
+      chapter: { type: Number, required: true },
       color: {
         type: String,
         enum: ['yellow', 'green', 'blue', 'pink', 'orange', 'purple', 'red'],
         default: 'yellow'
       },
-      note: {
-        type: String,
-        trim: true
-      },
-      day: {
-        type: Number, // Optional: which reading day this belongs to
-        min: 1,
-        max: 365
-      },
-      createdAt: {
-        type: Date,
-        default: Date.now
-      },
-      updatedAt: {
-        type: Date,
-        default: Date.now
-      }
+      note: { type: String, trim: true },
+      day: { type: Number, min: 1, max: 365 },
+      createdAt: { type: Date, default: Date.now },
+      updatedAt: { type: Date, default: Date.now }
     }
   ]
 }, { timestamps: true });
@@ -145,7 +110,7 @@ UserProgressSchema.methods.calculateProgress = function(totalDays = 365) {
 
 // Method to get highlights by book
 UserProgressSchema.methods.getHighlightsByBook = function(bookName) {
-  return this.highlights.filter(highlight => 
+  return this.highlights.filter(highlight =>
     highlight.book.toLowerCase() === bookName.toLowerCase()
   );
 };
