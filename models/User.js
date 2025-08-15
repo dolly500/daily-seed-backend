@@ -58,19 +58,19 @@ const UserSchema = new mongoose.Schema(
   default: null
 },
     // Push notification fields
-    fcmTokens: [
+   expoPushTokens: [
       {
-        token: String,
+        token: String, // Store Expo push token
         deviceId: String,
         platform: {
           type: String,
-          enum: ['ios', 'android']
+          enum: ['ios', 'android'],
         },
         createdAt: {
           type: Date,
-          default: Date.now
-        }
-      }
+          default: Date.now,
+        },
+      },
     ],
     pushNotificationsEnabled: {
       type: Boolean,

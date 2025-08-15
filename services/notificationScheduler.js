@@ -6,10 +6,9 @@ class NotificationScheduler {
     this.jobs = new Map();
   }
 
-  // Start all scheduled notification jobs
   startScheduledJobs() {
     console.log('Starting notification scheduler...');
-    
+
     // Daily reminder notifications at 9:00 AM
     this.scheduleJob('daily-reminders', '0 9 * * *', () => {
       console.log('Running daily reminder notifications...');
@@ -37,45 +36,38 @@ class NotificationScheduler {
     console.log('All notification jobs scheduled successfully');
   }
 
-  // Schedule a specific job
   scheduleJob(jobName, cronExpression, task) {
-  const job = cron.schedule(cronExpression, task, {
-    scheduled: true,
-    timezone: "Africa/Lagos" 
-  });
+    const job = cron.schedule(cronExpression, task, {
+      scheduled: true,
+      timezone: 'Africa/Lagos',
+    });
 
-  this.jobs.set(jobName, job);
-  console.log(`Scheduled job: ${jobName} with cron: ${cronExpression}`);
-}
+    this.jobs.set(jobName, job);
+    console.log(`Scheduled job: ${jobName} with cron: ${cronExpression}`);
+  }
 
-
-  // Send notifications using existing controller
   async sendNotifications(type = 'all') {
     try {
-      // Create mock request/response objects for the controller
       const mockReq = {
         body: { type },
-        query: { automated: true }
+        query: { automated: true },
       };
-      
+
       const mockRes = {
         status: (code) => ({
           json: (data) => {
             console.log(`Notification job completed with status ${code}:`, data);
             return data;
-          }
-        })
+          },
+        }),
       };
 
-      // Call the existing notification controller
       await NotificationController.sendAutomaticNotifications(mockReq, mockRes);
-      
     } catch (error) {
       console.error('Error in scheduled notification job:', error);
     }
   }
 
-  // Stop a specific job
   stopJob(jobName) {
     const job = this.jobs.get(jobName);
     if (job) {
@@ -85,7 +77,6 @@ class NotificationScheduler {
     }
   }
 
-  // Stop all jobs
   stopAllJobs() {
     this.jobs.forEach((job, jobName) => {
       job.stop();
@@ -94,13 +85,12 @@ class NotificationScheduler {
     this.jobs.clear();
   }
 
-  // Get status of all jobs
   getJobStatus() {
     const status = {};
     this.jobs.forEach((job, jobName) => {
       status[jobName] = {
         running: job.running,
-        scheduled: job.scheduled
+        scheduled: job.scheduled,
       };
     });
     return status;
