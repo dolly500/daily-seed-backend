@@ -598,7 +598,18 @@ exports.sendMessage = async (req, res, next) => {
       });
     }
 
-    const { content } = req.body;
+    const { content, replyTo } = req.body;
+
+    // Validate replyTo if provided
+    if (replyTo) {
+      const parentMessage = await Message.findById(replyTo);
+      if (!parentMessage || parentMessage.community.toString() !== req.params.id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid reply reference'
+        });
+      }
+    }
 
     // Auto-flag content based on community policy (admins bypass auto-flagging)
     let isFlagged = false;
@@ -621,6 +632,7 @@ exports.sendMessage = async (req, res, next) => {
       content,
       sender: req.user.id,
       community: req.params.id,
+      replyTo: replyTo || null,
       isFlagged,
       flagReason: isFlagged ? flagReason : undefined,
       flaggedAt: isFlagged ? new Date() : undefined
