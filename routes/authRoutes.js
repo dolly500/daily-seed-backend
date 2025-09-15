@@ -1,9 +1,11 @@
+const jwt = require('jsonwebtoken');
 const express = require('express');
 const router = express.Router();
 const { check } = require('express-validator');
 const { adminLogin, register, login, getMe, logout } = require('../controllers/authController');
 const passport = require('passport');
 const auth = require('../middleware/auth');
+
 
 
 router.post(
@@ -33,18 +35,34 @@ router.post('/admin/login',
 
 router.get(
   '/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
+  (req, res, next) => {
+    console.log('Initiating Google OAuth...');
+    passport.authenticate('google', { scope: ['profile', 'email'] }, (err, user, info) => {
+      if (err) {
+        console.error('Google auth error:', err);
+        return res.status(500).json({ error: 'Failed to initiate Google OAuth', details: err.message });
+      }
+      if (info) {
+        console.log('Google auth info:', info);
+      }
+      next();
+    })(req, res, next);
+  }
 );
 
 router.get(
   '/google/callback',
   passport.authenticate('google', { session: false, failureRedirect: '/login' }),
   (req, res) => {
+    if (!req.user || !req.user.id) {
+      console.error('No user found in callback:', req.user);
+      return res.status(500).json({ error: 'Authentication failed: No user data' });
+    }
     const token = jwt.sign({ id: req.user.id }, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRES_IN
     });
-
-    res.redirect(`${process.env.FRONTEND_URL}/auth-callback?token=${token}`);
+    console.log('JWT generated:', token);
+    res.json({ token });
   }
 );
 

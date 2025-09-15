@@ -165,12 +165,6 @@ exports.adminLogin = async (req, res, next) => {
   }
 };
 
-// @desc    Google OAuth callback
-// @route   GET /api/auth/google/callback
-// @access  Public
-exports.googleCallback = (req, res) => {
-  // This will be handled by Passport
-};
 
 // @desc    Get current logged in user
 // @route   GET /api/auth/me
