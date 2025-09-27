@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { createPost, getAllPosts, getPostById, updatePost, deletePost, getTotalPosts, getTotalUsers, getAllUsers} = require('../controllers/adminController');
+const { createPost, getWeeklyActivity, getAllPosts, getPostById, updatePost, deletePost, getTotalPosts, getTotalUsers, getAllUsers} = require('../controllers/adminController');
 const auth = require('../middleware/auth');
 
+
+router.get('/weekly-activity', auth, getWeeklyActivity)
 router.get('/total-users', auth, getTotalUsers);
 router.get('/users/getalluseradmin', auth, getAllUsers);
 

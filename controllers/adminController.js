@@ -3,6 +3,93 @@ const UserProgress = require('../models/UserProgress');
 const Streak = require('../models/Streak');
 const Post = require('../models/Post'); 
 
+
+exports.getWeeklyActivity = async (req, res) => {
+  try {
+    // Check admin privileges
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admins only.'
+      });
+    }
+
+    // Get current week's Monday
+    const today = new Date();
+    const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const monday = new Date(today);
+    
+    // Calculate days to subtract to get to Monday
+    const daysToSubtract = currentDay === 0 ? 6 : currentDay - 1;
+    monday.setDate(today.getDate() - daysToSubtract);
+    monday.setHours(0, 0, 0, 0);
+
+    // Create array for the 7 days of the week
+    const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const weeklyData = [];
+
+    // Get data for each day of the week
+    for (let i = 0; i < 7; i++) {
+      const dayStart = new Date(monday);
+      dayStart.setDate(monday.getDate() + i);
+      
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // Count user registrations for this day
+      const userRegistrations = await User.countDocuments({
+        createdAt: {
+          $gte: dayStart,
+          $lte: dayEnd
+        }
+      });
+
+      // Count post creations for this day
+      const postCreations = await Post.countDocuments({
+        createdAt: {
+          $gte: dayStart,
+          $lte: dayEnd
+        }
+      });
+
+      // Count active user logins for this day (if you have a login tracking model)
+      // For now, we'll use user registrations as activity indicator
+      const dailyActivity = userRegistrations + postCreations;
+
+      weeklyData.push({
+        day: weekDays[i],
+        date: dayStart.toISOString().split('T')[0], // YYYY-MM-DD format
+        userRegistrations,
+        postCreations,
+        totalActivity: dailyActivity
+      });
+    }
+
+    // Calculate totals for the week
+    const weekTotals = {
+      totalUserRegistrations: weeklyData.reduce((sum, day) => sum + day.userRegistrations, 0),
+      totalPostCreations: weeklyData.reduce((sum, day) => sum + day.postCreations, 0),
+      totalActivity: weeklyData.reduce((sum, day) => sum + day.totalActivity, 0)
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        weeklyActivity: weeklyData,
+        weekSummary: weekTotals,
+        weekStart: monday.toISOString().split('T')[0],
+        weekEnd: new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching weekly activity:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching weekly activity'
+    });
+  }
+};
+
 // @desc    Get total number of users and active users
 // @route   GET /api/admin/total-users
 // @access  Private (Admin only)
