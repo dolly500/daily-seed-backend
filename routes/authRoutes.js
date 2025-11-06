@@ -5,6 +5,50 @@ const { check } = require('express-validator');
 const { adminLogin, register, login, getMe, logout } = require('../controllers/authController');
 const passport = require('passport');
 const auth = require('../middleware/auth');
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const User = require('../models/User');
+
+router.post('/google', async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ message: 'Missing idToken' });
+    }
+
+    // Verify the token with Google
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+
+    // Find or create user
+    let user = await User.findOne({ email: payload.email });
+    if (!user) {
+      user = await User.create({
+        googleId: payload.sub,
+        email: payload.email,
+        username: payload.name,
+      });
+    }
+
+    // Generate your own JWT
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN,
+    });
+
+    res.status(200).json({
+      success: true,
+      token,
+      user,
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({ message: 'Google login failed', error: error.message });
+  }
+});
+
 
 router.post(
   '/register',
