@@ -65,13 +65,11 @@ exports.getAllPosts = async (req, res) => {
 
 
 // @desc    Get single post by ID
-// @route   GET /api/posts/userposts/:id
-// @access  Public/Protected
+
 exports.getPostById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Find post by ID, only if it's active
     const post = await Post.findOne({ _id: id, isActive: true })
       .populate('createdBy', 'username')
       .select('-__v');
@@ -99,7 +97,7 @@ exports.getPostById = async (req, res) => {
   } catch (error) {
     console.error('Error fetching post:', error);
     
-    // Handle invalid ObjectId
+
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,

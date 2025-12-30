@@ -63,10 +63,15 @@ exports.getReadingByDay = async (req, res, next) => {
     const { year, month, day } = req.params;
 
     // Validate date parameters
-    const requestedDate = new Date(Date.UTC(year, month - 1, day));
+    const parsedYear = parseInt(year);
+    const parsedMonth = parseInt(month);
+    const parsedDay = parseInt(day);
+    
+    const requestedDate = new Date(Date.UTC(parsedYear, parsedMonth - 1, parsedDay));
+    
     if (isNaN(requestedDate.getTime()) || 
-        parseInt(day) < 1 || 
-        parseInt(day) > new Date(year, month, 0).getDate()) {
+        parsedDay < 1 || 
+        parsedDay > new Date(parsedYear, parsedMonth, 0).getDate()) {
       return res.status(400).json({
         success: false,
         message: 'Invalid date parameters'
@@ -74,13 +79,11 @@ exports.getReadingByDay = async (req, res, next) => {
     }
 
     const user = await User.findById(req.user.id).populate('preferredBibleVersion');
-    // List of supported Bible versions from getBibleVersions
     const supportedVersions = ['kjv', 'web', 'net', 'nasb', 'niv', 'esv', 'nlt', 'msg'];
     let bibleVersion = user.preferredBibleVersion || 'kjv';
     
-    // Validate the preferred version
     if (!supportedVersions.includes(bibleVersion.toLowerCase())) {
-      bibleVersion = 'kjv'; // Fallback to KJV if invalid version
+      bibleVersion = 'kjv';
       console.warn(`Invalid Bible version ${user.preferredBibleVersion} for user ${req.user.id}, falling back to KJV`);
     }
 
@@ -92,39 +95,26 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    // Determine the reading day based on month and day
-    let readingDay;
-    const parsedMonth = parseInt(month);
-    const parsedDay = parseInt(day);
-
-    const monthRanges = [
-      { month: 1, startDay: 1, endDay: 31 },
-      { month: 2, startDay: 32, endDay: 59 },
-      { month: 3, startDay: 60, endDay: 90 },
-      { month: 4, startDay: 91, endDay: 120 },
-      { month: 5, startDay: 121, endDay: 151 },
-      { month: 6, startDay: 152, endDay: 181 },
-      { month: 7, startDay: 182, endDay: 212 },
-      { month: 8, startDay: 213, endDay: 243 },
-      { month: 9, startDay: 244, endDay: 273 },
-      { month: 10, startDay: 274, endDay: 304 },
-      { month: 11, startDay: 305, endDay: 334 },
-      { month: 12, startDay: 335, endDay: 365 }
-    ];
-
-    const monthRange = monthRanges.find(range => range.month === parsedMonth);
-    if (!monthRange) {
-      return res.status(400).json({
-        success: false,
-        message: 'Reading plan not defined for this month'
-      });
+    // Calculate reading day: This maps calendar date to reading plan day
+    // Start of year = January 1 = Day 1 of reading plan
+    const startOfYear = new Date(parsedYear, 0, 1);
+    const dayOfYear = Math.floor((requestedDate - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+    
+    // For non-leap years: 1-365
+    // For leap years: 1-366, but reading plan only has 365 entries
+    // So for leap years, after Feb 29 (day 60), we adjust by -1
+    const isLeapYear = (parsedYear % 4 === 0 && parsedYear % 100 !== 0) || (parsedYear % 400 === 0);
+    let readingDay = dayOfYear;
+    
+    if (isLeapYear && dayOfYear > 60) {
+      readingDay = dayOfYear - 1; // Adjust for leap day
     }
-
-    readingDay = monthRange.startDay + (parsedDay - 1);
-    if (readingDay > monthRange.endDay) {
+    
+    // Ensure reading day is within valid range
+    if (readingDay < 1 || readingDay > 365) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid day for this month'
+        message: 'Reading day out of valid range'
       });
     }
 
@@ -159,7 +149,7 @@ exports.getReadingByDay = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       reading: {
-        day: parseInt(day),
+        day: parsedDay,
         readingDay: readingDay,
         date: requestedDate,
         isCompleted: isCompleted,
