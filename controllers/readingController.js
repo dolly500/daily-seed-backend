@@ -390,9 +390,100 @@ function calculateDateFromDay(startDate, day) {
   return resultDate;
 }
 
-// Updated fetchBibleContent to work with Scripture API
+// Helper function to map book names to Scripture API book IDs
+function mapBookNameToId(bookName) {
+  const bookMap = {
+    // Old Testament
+    'Genesis': 'GEN', 'Exodus': 'EXO', 'Leviticus': 'LEV', 'Numbers': 'NUM', 'Deuteronomy': 'DEU',
+    'Joshua': 'JOS', 'Judges': 'JDG', 'Ruth': 'RUT', '1 Samuel': '1SA', '2 Samuel': '2SA',
+    '1 Kings': '1KI', '2 Kings': '2KI', '1 Chronicles': '1CH', '2 Chronicles': '2CH',
+    'Ezra': 'EZR', 'Nehemiah': 'NEH', 'Esther': 'EST', 'Job': 'JOB', 
+    'Psalm': 'PSA', 'Psalms': 'PSA',
+    'Proverbs': 'PRO', 'Ecclesiastes': 'ECC', 'Song of Solomon': 'SNG', 'Isaiah': 'ISA',
+    'Jeremiah': 'JER', 'Lamentations': 'LAM', 'Ezekiel': 'EZK', 'Daniel': 'DAN',
+    'Hosea': 'HOS', 'Joel': 'JOL', 'Amos': 'AMO', 'Obadiah': 'OBA', 'Jonah': 'JON',
+    'Micah': 'MIC', 'Nahum': 'NAM', 'Habakkuk': 'HAB', 'Zephaniah': 'ZEP', 'Haggai': 'HAG',
+    'Zechariah': 'ZEC', 'Malachi': 'MAL',
+    // New Testament
+    'Matthew': 'MAT', 'Mark': 'MRK', 'Luke': 'LUK', 'John': 'JHN', 'Acts': 'ACT',
+    'Romans': 'ROM', '1 Corinthians': '1CO', '2 Corinthians': '2CO', 'Galatians': 'GAL',
+    'Ephesians': 'EPH', 'Philippians': 'PHP', 'Colossians': 'COL', '1 Thessalonians': '1TH',
+    '2 Thessalonians': '2TH', '1 Timothy': '1TI', '2 Timothy': '2TI', 'Titus': 'TIT',
+    'Philemon': 'PHM', 'Hebrews': 'HEB', 'James': 'JAS', '1 Peter': '1PE', '2 Peter': '2PE',
+    '1 John': '1JN', '2 John': '2JN', '3 John': '3JN', 'Jude': 'JUD', 'Revelation': 'REV'
+  };
+
+  return bookMap[bookName] || null;
+}
+
+// Helper function to parse Scripture API content 
+function parseScriptureAPIContent(content, chapter) {
+  const verses = [];
+  
+  if (!content || !Array.isArray(content)) return verses;
+
+  // Recursive function to extract text from nested items
+  function extractText(items) {
+    if (!items || !Array.isArray(items)) return '';
+    
+    let text = '';
+    for (const item of items) {
+      if (item.type === 'text' && item.text) {
+        text += item.text;
+      } else if (item.type === 'tag' && item.items) {
+        // Recursively extract text from nested tags
+        text += extractText(item.items);
+      }
+    }
+    return text;
+  }
+
+  // Process each paragraph/section
+  for (const para of content) {
+    if (para.type === 'tag' && para.items) {
+      let currentVerseNumber = null;
+      let currentVerseText = '';
+      
+      for (const item of para.items) {
+        // Check if this is a verse marker
+        if (item.type === 'tag' && item.name === 'verse' && item.attrs && item.attrs.number) {
+          // Save previous verse if it exists
+          if (currentVerseNumber && currentVerseText.trim()) {
+            verses.push({
+              verse: `${chapter}:${currentVerseNumber}`,
+              text: currentVerseText.trim()
+            });
+          }
+          
+          // Start new verse
+          currentVerseNumber = item.attrs.number;
+          currentVerseText = '';
+        } 
+        // Check if this is text belonging to a verse
+        else if (currentVerseNumber) {
+          if (item.type === 'text' && item.text) {
+            currentVerseText += item.text;
+          } else if (item.type === 'tag' && item.items) {
+            // Extract text from nested tags (like 'char' tags with 'add' style)
+            currentVerseText += extractText(item.items);
+          }
+        }
+      }
+      
+      // Don't forget the last verse in the paragraph
+      if (currentVerseNumber && currentVerseText.trim()) {
+        verses.push({
+          verse: `${chapter}:${currentVerseNumber}`,
+          text: currentVerseText.trim()
+        });
+      }
+    }
+  }
+  
+  return verses;
+}
+
 const fetchBibleContent = async (book, startChapter, endChapter, versionId = 'de4e12af7f28f599-02', maxRetries = 3) => {
-  // Validate inputs
   if (!book || !startChapter || isNaN(startChapter)) {
     return {
       verses: [],
@@ -402,42 +493,90 @@ const fetchBibleContent = async (book, startChapter, endChapter, versionId = 'de
     };
   }
 
-  // Define chapterRange before try block
   const chapterRange = endChapter && endChapter !== startChapter && !isNaN(endChapter)
     ? `${startChapter}-${endChapter}`
     : startChapter.toString();
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Map book names to Scripture API book IDs (you may need to create a mapping)
       const bookId = mapBookNameToId(book);
       
-      // For Scripture API, we need to fetch chapters individually
+      console.log('=== FETCH DEBUG ===');
+      console.log('Book:', book);
+      console.log('BookID:', bookId);
+      console.log('Chapters:', startChapter, '-', endChapter);
+      
+      if (!bookId) {
+        return {
+          verses: [],
+          reference: `${book} ${chapterRange}`,
+          translation: versionId,
+          error: `Book "${book}" not found in mapping`
+        };
+      }
+
       const verses = [];
       const start = parseInt(startChapter);
       const end = endChapter ? parseInt(endChapter) : start;
 
       for (let chapter = start; chapter <= end; chapter++) {
-        const response = await axios.get(
-          `https://api.scripture.api.bible/v1/bibles/${versionId}/chapters/${bookId}.${chapter}`,
-          {
-            headers: {
-              'api-key': SCRIPTURE_API_KEY
-            },
-            params: {
-              'content-type': 'json',
-              'include-verse-numbers': true
-            },
-            timeout: 10000
-          }
-        );
+        const url = `https://api.scripture.api.bible/v1/bibles/${versionId}/chapters/${bookId}.${chapter}`;
+        console.log('Fetching URL:', url);
+        
+        const response = await axios.get(url, {
+          headers: {
+            'api-key': SCRIPTURE_API_KEY
+          },
+          params: {
+            'content-type': 'json',
+            'include-verse-numbers': true,
+            'include-titles': false,
+            'include-chapter-numbers': false,
+            'include-verse-spans': false
+          },
+          timeout: 10000
+        });
 
-        if (response.data && response.data.data && response.data.data.content) {
-          // Parse the content and extract verses
-          const chapterVerses = parseScriptureAPIContent(response.data.data.content, chapter);
-          verses.push(...chapterVerses);
+        console.log('=== API RESPONSE ===');
+        console.log('Status:', response.status);
+        console.log('Data keys:', Object.keys(response.data));
+        
+        if (response.data && response.data.data) {
+          console.log('Data.data keys:', Object.keys(response.data.data));
+          console.log('Content type:', typeof response.data.data.content);
+          console.log('Content is array?', Array.isArray(response.data.data.content));
+          
+          // Log first few characters/items of content
+          if (typeof response.data.data.content === 'string') {
+            console.log('Content (first 200 chars):', response.data.data.content.substring(0, 200));
+          } else if (Array.isArray(response.data.data.content)) {
+            console.log('Content array length:', response.data.data.content.length);
+            console.log('First content item:', JSON.stringify(response.data.data.content[0], null, 2));
+          } else {
+            console.log('Content:', response.data.data.content);
+          }
+          
+          const chapterData = response.data.data;
+          
+          if (chapterData.content) {
+            const chapterVerses = parseScriptureAPIContent(chapterData.content, chapter);
+            console.log(`Parsed ${chapterVerses.length} verses for ${bookId}.${chapter}`);
+            
+            if (chapterVerses.length > 0) {
+              console.log('First verse:', chapterVerses[0]);
+            }
+            
+            verses.push(...chapterVerses);
+          } else {
+            console.log('No content found in chapterData');
+          }
+        } else {
+          console.log('Invalid response structure');
         }
       }
+
+      console.log('Total verses collected:', verses.length);
+      console.log('===================');
 
       if (verses.length > 0) {
         return {
@@ -456,6 +595,11 @@ const fetchBibleContent = async (book, startChapter, endChapter, versionId = 'de
     } catch (error) {
       console.error(`Attempt ${attempt} failed for ${book} ${chapterRange} (${versionId}):`, error.message);
       
+      if (error.response) {
+        console.error('API Error Status:', error.response.status);
+        console.error('API Error Data:', error.response.data);
+      }
+      
       if (attempt === maxRetries) {
         return {
           verses: [],
@@ -469,50 +613,6 @@ const fetchBibleContent = async (book, startChapter, endChapter, versionId = 'de
     }
   }
 };
-
-// Helper function to map book names to Scripture API book IDs
-function mapBookNameToId(bookName) {
-  const bookMap = {
-    // Old Testament
-    'Genesis': 'GEN', 'Exodus': 'EXO', 'Leviticus': 'LEV', 'Numbers': 'NUM', 'Deuteronomy': 'DEU',
-    'Joshua': 'JOS', 'Judges': 'JDG', 'Ruth': 'RUT', '1 Samuel': '1SA', '2 Samuel': '2SA',
-    '1 Kings': '1KI', '2 Kings': '2KI', '1 Chronicles': '1CH', '2 Chronicles': '2CH',
-    'Ezra': 'EZR', 'Nehemiah': 'NEH', 'Esther': 'EST', 'Job': 'JOB', 'Psalms': 'PSA',
-    'Proverbs': 'PRO', 'Ecclesiastes': 'ECC', 'Song of Solomon': 'SNG', 'Isaiah': 'ISA',
-    'Jeremiah': 'JER', 'Lamentations': 'LAM', 'Ezekiel': 'EZK', 'Daniel': 'DAN',
-    'Hosea': 'HOS', 'Joel': 'JOL', 'Amos': 'AMO', 'Obadiah': 'OBA', 'Jonah': 'JON',
-    'Micah': 'MIC', 'Nahum': 'NAM', 'Habakkuk': 'HAB', 'Zephaniah': 'ZEP', 'Haggai': 'HAG',
-    'Zechariah': 'ZEC', 'Malachi': 'MAL',
-    // New Testament
-    'Matthew': 'MAT', 'Mark': 'MRK', 'Luke': 'LUK', 'John': 'JHN', 'Acts': 'ACT',
-    'Romans': 'ROM', '1 Corinthians': '1CO', '2 Corinthians': '2CO', 'Galatians': 'GAL',
-    'Ephesians': 'EPH', 'Philippians': 'PHP', 'Colossians': 'COL', '1 Thessalonians': '1TH',
-    '2 Thessalonians': '2TH', '1 Timothy': '1TI', '2 Timothy': '2TI', 'Titus': 'TIT',
-    'Philemon': 'PHM', 'Hebrews': 'HEB', 'James': 'JAS', '1 Peter': '1PE', '2 Peter': '2PE',
-    '1 John': '1JN', '2 John': '2JN', '3 John': '3JN', 'Jude': 'JUD', 'Revelation': 'REV'
-  };
-
-  return bookMap[bookName] || bookName.toUpperCase().slice(0, 3);
-}
-
-// Helper function to parse Scripture API content
-function parseScriptureAPIContent(content, chapter) {
-  const verses = [];
-  
-  // The content is HTML, we need to parse it
-  // This is a simple parser - you might want to use a library like cheerio for better parsing
-  const versePattern = /<span class="v">(\d+)<\/span>([^<]+)/g;
-  let match;
-  
-  while ((match = versePattern.exec(content)) !== null) {
-    verses.push({
-      verse: `${chapter}:${match[1]}`,
-      text: match[2].trim()
-    });
-  }
-  
-  return verses;
-}
 
 // @desc    Get all available Bible versions
 // @route   GET /api/reading/bible-versions
