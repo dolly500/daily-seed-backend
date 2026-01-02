@@ -5,6 +5,23 @@ const Streak = require('../models/Streak');
 const READING_PLAN_DATA = require('../scripts/readingPlan');
 const axios = require('axios');
 const NodeCache = require('node-cache');
+const SCRIPTURE_API_KEY = process.env.SCRIPTURE_API_KEY; 
+const versionCache = new NodeCache({ stdTTL: 86400 });
+
+// Helper function to map version abbreviations to Scripture API IDs
+const mapVersionAbbreviationToId = (abbreviation) => {
+  const versionMap = {
+    'kjv': 'de4e12af7f28f599-02',
+    'web': '9879dbb7cfe39e4d-04',
+    'net': '107e916c8d0c5d35-01',
+    'nasb': '65eec8e0b60e656b-01',
+    'niv': '78a9f6124f344018-01',
+    'esv': 'f421fe261da7624f-01',
+    'nlt': '7142879509583d59-01',
+    'msg': '6bab4d6c61b31b8f-01'
+  };
+  return versionMap[abbreviation?.toLowerCase()] || 'de4e12af7f28f599-02'; // Default to KJV
+};
 
 // @desc    Initialize user reading progress
 // @route   POST /api/reading/init
@@ -78,13 +95,21 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.user.id).populate('preferredBibleVersion');
-    const supportedVersions = ['kjv', 'web', 'net', 'nasb', 'niv', 'esv', 'nlt', 'msg'];
-    let bibleVersion = user.preferredBibleVersion || 'kjv';
+    const user = await User.findById(req.user.id);
     
-    if (!supportedVersions.includes(bibleVersion.toLowerCase())) {
-      bibleVersion = 'kjv';
-      console.warn(`Invalid Bible version ${user.preferredBibleVersion} for user ${req.user.id}, falling back to KJV`);
+    // Determine the Bible version ID to use
+    let bibleVersionId;
+    if (user.preferredBibleVersion) {
+      // Check if it's already a version ID (contains dashes and is long)
+      if (user.preferredBibleVersion.includes('-') && user.preferredBibleVersion.length > 10) {
+        bibleVersionId = user.preferredBibleVersion;
+      } else {
+        // It's an abbreviation, map it to ID
+        bibleVersionId = mapVersionAbbreviationToId(user.preferredBibleVersion);
+      }
+    } else {
+      // Default to KJV if no preference set
+      bibleVersionId = 'de4e12af7f28f599-02';
     }
 
     const userProgress = await UserProgress.findOne({ user: req.user.id });
@@ -136,13 +161,13 @@ exports.getReadingByDay = async (req, res, next) => {
         dayReading.oldTestament.book,
         dayReading.oldTestament.startChapter,
         dayReading.oldTestament.endChapter,
-        bibleVersion
+        bibleVersionId
       ),
       fetchBibleContent(
         dayReading.newTestament.book,
         dayReading.newTestament.startChapter,
         dayReading.newTestament.endChapter,
-        bibleVersion
+        bibleVersionId
       ),
     ]);
 
@@ -365,15 +390,14 @@ function calculateDateFromDay(startDate, day) {
   return resultDate;
 }
 
-// Helper function to fetch Bible content from Bible API
-// Helper function to fetch Bible content from Bible API
-const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv', maxRetries = 3) => {
+// Updated fetchBibleContent to work with Scripture API
+const fetchBibleContent = async (book, startChapter, endChapter, versionId = 'de4e12af7f28f599-02', maxRetries = 3) => {
   // Validate inputs
   if (!book || !startChapter || isNaN(startChapter)) {
     return {
       verses: [],
       reference: `${book || 'Unknown'} ${startChapter || ''}`,
-      translation: version.toUpperCase(),
+      translation: versionId,
       error: 'Invalid book or chapter parameters'
     };
   }
@@ -385,40 +409,58 @@ const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv'
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const reference = `${book}+${chapterRange}`;
+      // Map book names to Scripture API book IDs (you may need to create a mapping)
+      const bookId = mapBookNameToId(book);
       
-      const response = await axios.get(`https://bible-api.com/${reference}`, {
-        params: {
-          translation: version.toLowerCase()
-        },
-        timeout: 10000
-      });
+      // For Scripture API, we need to fetch chapters individually
+      const verses = [];
+      const start = parseInt(startChapter);
+      const end = endChapter ? parseInt(endChapter) : start;
 
-      if (response.data && response.data.verses) {
+      for (let chapter = start; chapter <= end; chapter++) {
+        const response = await axios.get(
+          `https://api.scripture.api.bible/v1/bibles/${versionId}/chapters/${bookId}.${chapter}`,
+          {
+            headers: {
+              'api-key': SCRIPTURE_API_KEY
+            },
+            params: {
+              'content-type': 'json',
+              'include-verse-numbers': true
+            },
+            timeout: 10000
+          }
+        );
+
+        if (response.data && response.data.data && response.data.data.content) {
+          // Parse the content and extract verses
+          const chapterVerses = parseScriptureAPIContent(response.data.data.content, chapter);
+          verses.push(...chapterVerses);
+        }
+      }
+
+      if (verses.length > 0) {
         return {
-          verses: response.data.verses.map(verse => ({
-            verse: verse.verse,
-            text: verse.text.trim()
-          })),
-          reference: response.data.reference,
-          translation: response.data.translation_name || version.toUpperCase()
+          verses: verses,
+          reference: `${book} ${chapterRange}`,
+          translation: versionId
         };
       }
 
       return {
         verses: [],
         reference: `${book} ${chapterRange}`,
-        translation: version.toUpperCase(),
+        translation: versionId,
         error: 'No verses returned from API'
       };
     } catch (error) {
-      console.error(`Attempt ${attempt} failed for ${book} ${chapterRange} (${version}):`, error.message);
+      console.error(`Attempt ${attempt} failed for ${book} ${chapterRange} (${versionId}):`, error.message);
       
       if (attempt === maxRetries) {
         return {
           verses: [],
           reference: `${book} ${chapterRange}`,
-          translation: version.toUpperCase(),
+          translation: versionId,
           error: `Failed after ${maxRetries} attempts: ${error.message}`
         };
       }
@@ -427,6 +469,50 @@ const fetchBibleContent = async (book, startChapter, endChapter, version = 'kjv'
     }
   }
 };
+
+// Helper function to map book names to Scripture API book IDs
+function mapBookNameToId(bookName) {
+  const bookMap = {
+    // Old Testament
+    'Genesis': 'GEN', 'Exodus': 'EXO', 'Leviticus': 'LEV', 'Numbers': 'NUM', 'Deuteronomy': 'DEU',
+    'Joshua': 'JOS', 'Judges': 'JDG', 'Ruth': 'RUT', '1 Samuel': '1SA', '2 Samuel': '2SA',
+    '1 Kings': '1KI', '2 Kings': '2KI', '1 Chronicles': '1CH', '2 Chronicles': '2CH',
+    'Ezra': 'EZR', 'Nehemiah': 'NEH', 'Esther': 'EST', 'Job': 'JOB', 'Psalms': 'PSA',
+    'Proverbs': 'PRO', 'Ecclesiastes': 'ECC', 'Song of Solomon': 'SNG', 'Isaiah': 'ISA',
+    'Jeremiah': 'JER', 'Lamentations': 'LAM', 'Ezekiel': 'EZK', 'Daniel': 'DAN',
+    'Hosea': 'HOS', 'Joel': 'JOL', 'Amos': 'AMO', 'Obadiah': 'OBA', 'Jonah': 'JON',
+    'Micah': 'MIC', 'Nahum': 'NAM', 'Habakkuk': 'HAB', 'Zephaniah': 'ZEP', 'Haggai': 'HAG',
+    'Zechariah': 'ZEC', 'Malachi': 'MAL',
+    // New Testament
+    'Matthew': 'MAT', 'Mark': 'MRK', 'Luke': 'LUK', 'John': 'JHN', 'Acts': 'ACT',
+    'Romans': 'ROM', '1 Corinthians': '1CO', '2 Corinthians': '2CO', 'Galatians': 'GAL',
+    'Ephesians': 'EPH', 'Philippians': 'PHP', 'Colossians': 'COL', '1 Thessalonians': '1TH',
+    '2 Thessalonians': '2TH', '1 Timothy': '1TI', '2 Timothy': '2TI', 'Titus': 'TIT',
+    'Philemon': 'PHM', 'Hebrews': 'HEB', 'James': 'JAS', '1 Peter': '1PE', '2 Peter': '2PE',
+    '1 John': '1JN', '2 John': '2JN', '3 John': '3JN', 'Jude': 'JUD', 'Revelation': 'REV'
+  };
+
+  return bookMap[bookName] || bookName.toUpperCase().slice(0, 3);
+}
+
+// Helper function to parse Scripture API content
+function parseScriptureAPIContent(content, chapter) {
+  const verses = [];
+  
+  // The content is HTML, we need to parse it
+  // This is a simple parser - you might want to use a library like cheerio for better parsing
+  const versePattern = /<span class="v">(\d+)<\/span>([^<]+)/g;
+  let match;
+  
+  while ((match = versePattern.exec(content)) !== null) {
+    verses.push({
+      verse: `${chapter}:${match[1]}`,
+      text: match[2].trim()
+    });
+  }
+  
+  return verses;
+}
 
 // @desc    Get all available Bible versions
 // @route   GET /api/reading/bible-versions
@@ -437,75 +523,54 @@ exports.getBibleVersions = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const bibleVersions = [
-      {
-        id: 'kjv',
-        name: 'King James Version',
-        abbreviation: 'KJV',
-        language: 'English',
-        year: 1611,
-        description: 'Traditional English translation'
+    // Check cache first
+    const cachedVersions = versionCache.get('bibleVersions');
+    if (cachedVersions) {
+      const user = await User.findById(req.user.id);
+      const currentVersion = user.preferredBibleVersion || 'de4e12af7f28f599-02'; // KJV default
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          versions: cachedVersions,
+          currentVersion: currentVersion,
+          totalVersions: cachedVersions.length
+        }
+      });
+    }
+
+    // Fetch from Scripture API if not cached
+    const response = await axios.get('https://api.scripture.api.bible/v1/bibles', {
+      headers: {
+        'api-key': SCRIPTURE_API_KEY
       },
-      {
-        id: 'web',
-        name: 'World English Bible',
-        abbreviation: 'WEB',
-        language: 'English',
-        year: 2000,
-        description: 'Public domain modern English translation'
-      },
-      {
-        id: 'net',
-        name: 'New English Translation',
-        abbreviation: 'NET',
-        language: 'English',
-        year: 2005,
-        description: 'Contemporary English with extensive notes'
-      },
-      {
-        id: 'nasb',
-        name: 'New American Standard Bible',
-        abbreviation: 'NASB',
-        language: 'English',
-        year: 1995,
-        description: 'Literal translation for study'
-      },
-      {
-        id: 'niv',
-        name: 'New International Version',
-        abbreviation: 'NIV',
-        language: 'English',
-        year: 2011,
-        description: 'Popular contemporary translation'
-      },
-      {
-        id: 'esv',
-        name: 'English Standard Version',
-        abbreviation: 'ESV',
-        language: 'English',
-        year: 2001,
-        description: 'Literal yet readable translation'
-      },
-      {
-        id: 'nlt',
-        name: 'New Living Translation',
-        abbreviation: 'NLT',
-        language: 'English',
-        year: 2015,
-        description: 'Thought-for-thought translation'
-      },
-      {
-        id: 'msg',
-        name: 'The Message',
-        abbreviation: 'MSG',
-        language: 'English',
-        year: 2002,
-        description: 'Contemporary paraphrase'
+      params: {
+        language: 'eng' // Filter for English versions only
       }
-    ];
+    });
+
+    if (!response.data || !response.data.data) {
+      throw new Error('Invalid response from Scripture API');
+    }
+
+    // Transform the API response to match your format
+    const bibleVersions = response.data.data
+      .filter(bible => bible.language.id === 'eng') // English only
+      .map(bible => ({
+        id: bible.id,
+        name: bible.name,
+        abbreviation: bible.abbreviation,
+        description: bible.description || `${bible.name} translation`,
+        language: bible.language.name,
+        copyright: bible.copyright
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
+
+    // Cache the versions
+    versionCache.set('bibleVersions', bibleVersions);
 
     const user = await User.findById(req.user.id);
-    const currentVersion = user.preferredBibleVersion || 'kjv';
+    const currentVersion = user.preferredBibleVersion || 'de4e12af7f28f599-02'; // KJV default
 
     res.status(200).json({
       success: true,
@@ -518,10 +583,33 @@ exports.getBibleVersions = async (req, res, next) => {
 
   } catch (error) {
     console.error('Error getting Bible versions:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
+    
+    // Fallback to basic versions if API fails
+    const fallbackVersions = [
+      {
+        id: 'de4e12af7f28f599-02',
+        name: 'King James Version',
+        abbreviation: 'KJV',
+        language: 'English',
+        description: 'Traditional English translation'
+      },
+      {
+        id: '9879dbb7cfe39e4d-04',
+        name: 'World English Bible',
+        abbreviation: 'WEB',
+        language: 'English',
+        description: 'Public domain modern English translation'
+      }
+    ];
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        versions: fallbackVersions,
+        currentVersion: 'de4e12af7f28f599-02',
+        totalVersions: fallbackVersions.length
+      },
+      warning: 'Using fallback versions due to API error'
     });
   }
 };
@@ -1445,10 +1533,6 @@ exports.deleteNote = async (req, res, next) => {
   }
 };
 
-
-
-// ===================== HIGHLIGHTS FUNCTIONALITY =====================
-// Add these endpoints to your existing reading controller
 
 // @desc    Add a highlight for a specific verse
 // @route   POST /api/reading/highlights

@@ -33,7 +33,26 @@ const UserSchema = new mongoose.Schema(
     },
     preferredBibleVersion: {
       type: String,
-      default: 'KJV'
+      default: 'de4e12af7f28f599-02' // KJV from Scripture API
+    },
+    // Store additional Bible version metadata for quick access
+    bibleVersionMetadata: {
+      id: {
+        type: String,
+        default: 'de4e12af7f28f599-02'
+      },
+      name: {
+        type: String,
+        default: 'King James Version'
+      },
+      abbreviation: {
+        type: String,
+        default: 'KJV'
+      },
+      language: {
+        type: String,
+        default: 'English'
+      }
     },
     lastLogin: {
       type: Date,
@@ -55,12 +74,13 @@ const UserSchema = new mongoose.Schema(
     passwordResetExpires: {
       type: Date,
       select: false 
-    },lastNotificationSent: {
-  type: Date,
-  default: null
-},
+    },
+    lastNotificationSent: {
+      type: Date,
+      default: null
+    },
     // Push notification fields
-   expoPushTokens: [
+    expoPushTokens: [
       {
         token: String, // Store Expo push token
         deviceId: String,
@@ -77,12 +97,36 @@ const UserSchema = new mongoose.Schema(
     pushNotificationsEnabled: {
       type: Boolean,
       default: true
+    },
+    // Reading preferences
+    readingPreferences: {
+      fontSize: {
+        type: String,
+        enum: ['small', 'medium', 'large'],
+        default: 'medium'
+      },
+      readingMode: {
+        type: String,
+        enum: ['light', 'dark', 'sepia'],
+        default: 'light'
+      },
+      verseNumbersVisible: {
+        type: Boolean,
+        default: true
+      },
+      dailyReminderTime: {
+        type: String, // Format: "HH:MM" (24-hour)
+        default: '08:00'
+      },
+      dailyReminderEnabled: {
+        type: Boolean,
+        default: true
+      }
     }
   },
   {
     timestamps: true
-  },
-  
+  }
 );
 
 // Encrypt password using bcrypt
@@ -103,6 +147,46 @@ UserSchema.pre('save', async function(next) {
 UserSchema.methods.matchPassword = async function(enteredPassword) {
   if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Method to update Bible version with metadata
+UserSchema.methods.updateBibleVersion = async function(versionData) {
+  this.preferredBibleVersion = versionData.id;
+  this.bibleVersionMetadata = {
+    id: versionData.id,
+    name: versionData.name,
+    abbreviation: versionData.abbreviation,
+    language: versionData.language || 'English'
+  };
+  return await this.save();
+};
+
+// Migration helper: Convert old version codes to new Scripture API IDs
+UserSchema.statics.migrateOldVersionCodes = async function() {
+  const versionMap = {
+    'kjv': 'de4e12af7f28f599-02',
+    'web': '9879dbb7cfe39e4d-04',
+    'net': '107909fe18b5b899-01',
+    'nasb': 'f72b840c855f362c-04',
+    'niv': '78a9f6124f344018-01',
+    'esv': 'f421fe261da7624f-01',
+    'nlt': 'de4e12af7f28f599-01',
+    'msg': '65eec8e0b60e656b-01'
+  };
+
+  const users = await this.find({
+    preferredBibleVersion: { $in: Object.keys(versionMap) }
+  });
+
+  for (const user of users) {
+    const oldVersion = user.preferredBibleVersion.toLowerCase();
+    if (versionMap[oldVersion]) {
+      user.preferredBibleVersion = versionMap[oldVersion];
+      await user.save();
+    }
+  }
+
+  console.log(`Migrated ${users.length} users to new Bible version format`);
 };
 
 module.exports = mongoose.model('User', UserSchema);
