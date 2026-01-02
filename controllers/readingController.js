@@ -714,6 +714,50 @@ exports.getBibleVersions = async (req, res, next) => {
   }
 };
 
+// @desc    Update user's preferred Bible version
+// @route   PUT /api/reading/bible-version
+// @access  Private
+exports.updateBibleVersion = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { versionId } = req.body;
+
+    if (!versionId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Version ID is required' 
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    user.preferredBibleVersion = versionId;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Bible version updated successfully',
+      preferredBibleVersion: versionId
+    });
+  } catch (error) {
+    console.error('Error updating Bible version:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
 
 // @desc    Mark Old Testament reading as complete for a specific date
 // @route   PUT /api/reading/complete-old-testament/:year/:month/:day

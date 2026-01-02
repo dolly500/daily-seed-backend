@@ -9,6 +9,7 @@ const {
   getStreakHistory,
   getReadingByDay,
   getBibleVersions,
+  updateBibleVersion,
   markOldTestamentComplete,
   markNewTestamentComplete,
   markDayComplete,
@@ -39,6 +40,7 @@ router.get('/day/:year/:month/:day', auth, getReadingByDay);
 router.get('/streak', auth, getStreak);
 router.get('/streak-history', auth, getStreakHistory);
 router.get('/bible-versions', auth, getBibleVersions);
+router.put('/bible-version', auth, updateBibleVersion)
 router.put('/complete-old-testament/:year/:month/:day', auth, markOldTestamentComplete);
 router.put('/complete-new-testament/:year/:month/:day', auth, markNewTestamentComplete);
 router.put('/complete-day/:year/:month/:day', auth, markDayComplete);
