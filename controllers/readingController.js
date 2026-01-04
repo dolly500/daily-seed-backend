@@ -78,6 +78,7 @@ exports.getReadingByDay = async (req, res, next) => {
     }
 
     const { year, month, day } = req.params;
+    const { versionId: queryVersionId } = req.query; // Get versionId from query string
 
     // Validate date parameters
     const parsedYear = parseInt(year);
@@ -95,22 +96,41 @@ exports.getReadingByDay = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.user.id);
-    
     // Determine the Bible version ID to use
-    let bibleVersionId;
-    if (user.preferredBibleVersion) {
-      // Check if it's already a version ID (contains dashes and is long)
-      if (user.preferredBibleVersion.includes('-') && user.preferredBibleVersion.length > 10) {
-        bibleVersionId = user.preferredBibleVersion;
-      } else {
-        // It's an abbreviation, map it to ID
-        bibleVersionId = mapVersionAbbreviationToId(user.preferredBibleVersion);
-      }
+    let bibleVersionId = 'de4e12af7f28f599-02'; // Default to KJV
+    
+    // Priority 1: Use versionId from query string if provided
+    if (queryVersionId) {
+      bibleVersionId = queryVersionId;
+      console.log('Using versionId from query string:', queryVersionId);
     } else {
-      // Default to KJV if no preference set
-      bibleVersionId = 'de4e12af7f28f599-02';
+      // Priority 2: Fetch user's saved preference
+      const user = await User.findById(req.user.id).select('preferredBibleVersion');
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      if (user.preferredBibleVersion) {
+        // Check if it's already a version ID (contains dashes and is long)
+        if (user.preferredBibleVersion.includes('-') && user.preferredBibleVersion.length > 10) {
+          bibleVersionId = user.preferredBibleVersion;
+        } else {
+          // It's an abbreviation, map it to ID
+          bibleVersionId = mapVersionAbbreviationToId(user.preferredBibleVersion);
+        }
+        console.log('Using user saved preference:', bibleVersionId);
+      }
     }
+
+    console.log('=== BIBLE VERSION DEBUG ===');
+    console.log('User ID:', req.user.id);
+    console.log('Query versionId:', queryVersionId);
+    console.log('Final bibleVersionId:', bibleVersionId);
+    console.log('==========================');
 
     const userProgress = await UserProgress.findOne({ user: req.user.id });
     if (!userProgress) {

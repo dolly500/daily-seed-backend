@@ -650,3 +650,97 @@ exports.sendMessage = async (req, res, next) => {
   }
 };
 
+// @desc    Edit message
+// @route   PUT /api/communities/communities/:id/messages/:messageId
+// @access  Private/User
+exports.editMessage = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
+
+    const { id: communityId, messageId } = req.params;
+    const { content } = req.body;
+
+    const community = await Community.findById(communityId);
+    if (!community) {
+      return res.status(404).json({
+        success: false,
+        message: 'Community not found'
+      });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message || message.community.toString() !== communityId) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message not found'
+      });
+    }
+
+    // Check if message is deleted
+    if (message.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot edit a deleted message'
+      });
+    }
+
+    // Check if user is the sender or admin
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = message.sender.toString() === req.user.id.toString();
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only edit your own messages.'
+      });
+    }
+
+    // Store original content if this is the first edit
+    if (!message.isEdited) {
+      message.originalContent = message.content;
+    }
+
+    // Update message content
+    message.content = content;
+    message.isEdited = true;
+    message.editedAt = new Date();
+
+    // Re-apply auto-flagging based on community policy (skip for admins)
+    if (!isAdmin) {
+      message.isFlagged = false;
+      message.flagReason = '';
+
+      if (community.policy.flagPhoneNumbers && /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(content)) {
+        message.isFlagged = true;
+        message.flagReason = 'Contains phone number';
+      } else if (community.policy.flagEmails && /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/.test(content)) {
+        message.isFlagged = true;
+        message.flagReason = 'Contains email address';
+      } else if (community.policy.flagLinks && /(https?:\/\/[^\s]+)/g.test(content)) {
+        message.isFlagged = true;
+        message.flagReason = 'Contains link';
+      }
+
+      if (message.isFlagged) {
+        message.flaggedAt = new Date();
+      }
+    }
+
+    await message.save();
+    await message.populate('sender', 'username avatar');
+
+    res.status(200).json({
+      success: true,
+      message
+    });
+  } catch (error) {
+    console.error('Edit message error:', error);
+    next(error);
+  }
+};
