@@ -12,6 +12,7 @@ const {
   leaveCommunity,
   getCommunityMessages,
   sendMessage,
+  editMessage,
   getFlaggedMessages,
   toggleMessageFlag
 } = require('../controllers/communityController');
@@ -43,6 +44,8 @@ router.get('/communities/:id/messages', auth, getCommunityMessages);
 
 // Send message to community(user)
 router.post('/communities/:id/messages', auth, sendMessage);
+
+router.put('/communities/:id/messages/:messageId', auth, editMessage);
 
 // Get flagged messages (Admin/Moderator only)
 router.get('/communities/:id/flagged-messages', auth, getFlaggedMessages);
